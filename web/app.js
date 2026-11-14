@@ -99,6 +99,45 @@ const TEXTCOLS = {
 };
 const val = (s, k) => (k in TEXTCOLS ? TEXTCOLS[k].sortKey(s) : s[k]);
 
+/* Tedbir: üçgen içinde ünlem; üzerine gelince ya da dokununca açılır pencerede tedbirler */
+const WARN_SVG = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 1.5 15 14H1z" fill="currentColor"/><path d="M8 6v3.6" stroke="var(--surface)" stroke-width="1.7" stroke-linecap="round"/><circle cx="8" cy="11.7" r=".95" fill="var(--surface)"/></svg>';
+const tedbirIcon = s => s.tedbir?.length
+  ? `<button type="button" class="tedbir" data-tedbir="${s.t}" aria-label="${s.t}: ${s.tedbir.length} tedbir uygulanıyor" aria-haspopup="dialog">${WARN_SVG}</button>` : '';
+function tedbirHtml(t) {
+  const s = BY.get(t);
+  if (!s?.tedbir?.length) return '';
+  return `<b>${t} · uygulanan tedbirler</b><ul>${s.tedbir.map(m => `<li><span>${esc(m.type)}</span><small>${m.from ? fmt.date(m.from) : '?'} – ${m.to ? fmt.date(m.to) : 'süresiz'}${m.note ? ' · ' + esc(m.note) : ''}</small></li>`).join('')}</ul>`;
+}
+const pop = document.createElement('div');
+pop.className = 'pop'; pop.setAttribute('role', 'dialog'); pop.hidden = true;
+document.body.appendChild(pop);
+let popFor = null, popAt = 0;
+function showPop(btn) {
+  const html = tedbirHtml(btn.dataset.tedbir);
+  if (!html) return;
+  pop.innerHTML = html; pop.hidden = false; popFor = btn; popAt = performance.now();
+  const r = btn.getBoundingClientRect(), w = pop.offsetWidth;
+  pop.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + 'px';
+  const below = r.bottom + 8 + pop.offsetHeight < innerHeight;
+  pop.style.top = (below ? r.bottom + 8 : r.top - pop.offsetHeight - 8) + 'px';
+}
+function hidePop() { pop.hidden = true; popFor = null; }
+// Fareli cihazlarda üzerine gelince aç/kapat; dokunmatikte yalnızca dokunma (tarayıcının ürettiği sahte fare olayları yok sayılır)
+document.addEventListener('mouseover', e => {
+  if (!matchMedia('(hover: hover)').matches) return;
+  const b = e.target.closest?.('.tedbir');
+  if (b) showPop(b);
+  else if (popFor && !e.target.closest?.('.pop')) hidePop();
+});
+document.addEventListener('click', e => {
+  const b = e.target.closest?.('.tedbir');
+  if (b) { e.preventDefault(); e.stopPropagation(); popFor === b && !pop.hidden ? hidePop() : showPop(b); return; }
+  if (!e.target.closest?.('.pop')) hidePop();
+}, true);
+// Açıldıktan hemen sonraki kaydırma (dokunma öncesi kaydırma, atalet) pencereyi kapatmasın
+addEventListener('scroll', () => { if (!pop.hidden && performance.now() - popAt > 400) hidePop(); }, true);
+addEventListener('keydown', e => { if (e.key === 'Escape') hidePop(); });
+
 function signalChips(s) {
   const out = [];
   if (s.cross === 'golden') out.push('<span class="chip up">Golden cross</span>');
@@ -136,6 +175,7 @@ const PRESETS = [
   { id: 'cloudUp',  label: 'Bulut üstünde',    test: s => s.ichi === 'above' && s.tkCross !== 'down', hint: 'Fiyat Ichimoku bulutunun üstünde', sort: ['rs3m', -1] },
   { id: 'high52',   label: '52H zirvesinde',   test: s => s.distHi52 > -0.03, hint: '52 haftalık zirveye %3\'ten yakın', sort: ['distHi52', -1] },
   { id: 'volspike', label: 'Hacim patlaması',  test: s => s.volRatio >= 2, hint: 'Hacim, 20 günlük ortalamanın 2 katı', sort: ['volRatio', -1] },
+  { id: 'tedbir',   label: '⚠ Tedbirli',       test: s => !!s.tedbir?.length, hint: 'Borsa İstanbul tedbiri uygulanan hisseler' },
   { id: 'value',    label: 'Ucuz',             test: s => s.pe > 0 && s.pe < 8 && s.pb > 0 && s.pb < 1.5, hint: 'F/K < 8 ve PD/DD < 1,5', sort: ['pe', 1] },
   { id: 'quality',  label: 'Kârlı büyüme',     test: s => s.roe > 0.25 && s.netMargin > 0.1 && s.revGrowth > 0, hint: 'ÖK kârlılığı > %25, net marj > %10, satış büyüyor', sort: ['roe', -1] },
 ];
@@ -146,7 +186,7 @@ const OPS = { '>': (a, b) => a > b, '<': (a, b) => a < b };
    ============================================================ */
 const KEY = 'tahta:v1';
 const state = Object.assign({
-  view: 'fiyat', sort: { key: 'turnover', dir: -1 }, preset: 'all', sector: '', index: '', market: '', filters: [], watch: [], saved: [],
+  view: 'fiyat', sort: { key: 'turnover', dir: -1 }, preset: 'all', sector: '', index: '', market: '', hideTedbir: false, filters: [], watch: [], saved: [],
   compare: ['XU100'],
   chart: { range: '6A', sma20: false, sma50: true, sma200: true, bb: false, vwma: false, ichi: false, st: false,
            rsi: true, stoch: false, macd: true, fisher: false, atr: false },
@@ -214,6 +254,7 @@ function filtered() {
     (!state.sector || s.sector === state.sector) &&
     (!state.index || tierRank(s) <= TIER_RANK[state.index]) &&
     (!state.market || s.mkt === state.market) &&
+    (!state.hideTedbir || !s.tedbir?.length || state.preset === 'tedbir') &&
     state.filters.every(f => {
       const v = s[f.key], fd = FIELDS[f.key];
       if (f.value === '' || f.value == null) return true;
@@ -250,7 +291,7 @@ function tableHtml(rows, cols, { sortable = true, highlight = null } = {}) {
   const body = rows.map(s => {
     const starred = state.watch.includes(s.t);
     return `<tr data-t="${s.t}"${s.t === highlight ? ' style="font-weight:600"' : ''}>
-      <td class="tk"><button type="button" class="star" data-star="${s.t}" aria-pressed="${starred}" aria-label="${s.t} izleme listesi">★</button><span class="code" title="${esc(s.name || '')}">${s.t}</span></td>
+      <td class="tk"><button type="button" class="star" data-star="${s.t}" aria-pressed="${starred}" aria-label="${s.t} izleme listesi">★</button><span class="code" title="${esc(s.name || '')}">${s.t}</span>${tedbirIcon(s)}</td>
       ${cols.map(k => cellHtml(s, k)).join('')}</tr>`;
   }).join('');
   return `<table class="grid"><thead>${head}</thead><tbody>${body}</tbody></table>`;
@@ -305,6 +346,7 @@ function renderScreener() {
       <select id="marketSel" class="btn">${[['', 'Tüm pazarlar'], ['Yıldız', 'Yıldız Pazar'], ['Ana', 'Ana Pazar'], ['Alt', 'Alt Pazar'], ['YİP', 'Yakın İzleme Pazarı']].map(([v, l]) => `<option value="${v}"${v === state.market ? ' selected' : ''}>${l}</option>`).join('')}</select>
       <label class="sr" for="sector">Sektör</label>
       <select id="sector" class="btn"><option value="">Tüm sektörler</option>${sectors.map(s => `<option${s === state.sector ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select>
+      <label class="btn chk"><input type="checkbox" id="hideTedbir"${state.hideTedbir ? ' checked' : ''}> Tedbirlileri gizle</label>
       <button type="button" class="btn" id="addFilter">+ Filtre ekle</button>
       <span class="count"><b class="num">${rows.length}</b> / ${DATA.stocks.length} hisse${preset?.hint ? ` · ${esc(preset.hint)}` : ''}</span>
     </div>
@@ -380,7 +422,7 @@ async function renderDetail(t) {
   <section class="dhead">
     <a class="back" href="#/">← Tarama</a>
     <div>
-      <h1>${isIdx ? '' : `<button type="button" class="star" data-star="${t}" aria-pressed="${starred}" aria-label="İzleme listesi">★</button>`}${esc(t)}</h1>
+      <h1>${isIdx ? '' : `<button type="button" class="star" data-star="${t}" aria-pressed="${starred}" aria-label="İzleme listesi">★</button>`}${esc(t)}${tedbirIcon(s)}</h1>
       <p class="sub">${isIdx ? '' : tierChip(s) + ' '}${esc(s.name || '')}${s.sector ? ' · ' + esc(s.sector) : ''}${s.industry ? ' · ' + esc(s.industry) : ''}</p>
     </div>
     <div class="px"><span class="price">${fmt.price(s.last)}${isIdx ? '' : ' ₺'}</span><span class="chg ${cls(s.chg1d)}">${fmt.pct(s.chg1d)}</span><span class="date">${fmt.date(s.date)} kapanış</span></div>
@@ -816,6 +858,7 @@ view.addEventListener('click', e => {
 view.addEventListener('change', e => {
   if (e.target.id === 'sector') { state.sector = e.target.value; persist(); renderScreener(); return; }
   if (e.target.id === 'indexSel') { state.index = e.target.value; persist(); renderScreener(); return; }
+  if (e.target.id === 'hideTedbir') { state.hideTedbir = e.target.checked; persist(); renderScreener(); return; }
   if (e.target.id === 'marketSel') { state.market = e.target.value; persist(); renderScreener(); return; }
   const row = e.target.closest('.frow');
   if (!row) return;

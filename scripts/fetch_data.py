@@ -370,6 +370,38 @@ def load_markets(cache_dir: Path, max_age_h: float = 20) -> dict[str, str]:
         return old.get("data") or {}
 
 
+MEASURES_FILE = HERE / "tedbirler.csv"
+
+
+def load_measures(path: Path = MEASURES_FILE) -> dict[str, list[dict]]:
+    """Süresi dolmamış tedbirler: {KOD: [{"type", "from", "to", "note"}]}."""
+    out: dict[str, list[dict]] = {}
+    if not path.exists():
+        return out
+    today = dt.date.today()
+
+    def d(x):
+        try:
+            return dt.datetime.strptime(x.strip(), "%d.%m.%Y").date()
+        except ValueError:
+            return None
+
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        r = [x.strip() for x in line.split(";")] + [""] * 5
+        code, kind, start, end, note = r[:5]
+        if code.lower() == "kod" or not code:
+            continue
+        e = d(end) if end else None
+        if e and e < today:
+            continue
+        out.setdefault(code.upper(), []).append(
+            {"type": kind, "from": d(start).isoformat() if d(start) else None, "to": e.isoformat() if e else None, "note": note or None})
+    print(f"Tedbirler: {sum(len(v) for v in out.values())} aktif tedbir, {len(out)} hisse.", flush=True)
+    return out
+
+
 def download_prices(symbols: list[str]) -> dict[str, pd.DataFrame]:
     import yfinance as yf
 
@@ -471,6 +503,7 @@ def main():
     cache_dir = Path(args.cache_dir)
     tickers, tier, bist_names, index_date = load_universe(cache_dir)
     markets = load_markets(cache_dir)
+    measures = load_measures()
     # Yakın İzleme Pazarı hisseleri endekslerde yer almaz; riskleri görünsün diye taramaya eklenir.
     yip = sorted(c for c, m in markets.items() if m == "YİP" and c not in tier)
     tickers = tickers + yip
@@ -513,7 +546,7 @@ def main():
             s = is_summ.get(t) or {}
             f = {"name": s.get("name") or bist_names.get(t), "sector": s.get("sector"),
                  "freeFloat": s.get("freeFloat"), **isyatirim.ratios(m["last"], s, is_fin.get(t))}
-        stocks.append({"t": t, "idx": tier.get(t), "mkt": markets.get(t), **f, **m})
+        stocks.append({"t": t, "idx": tier.get(t), "mkt": markets.get(t), "tedbir": measures.get(t), **f, **m})
     index_summary = None
     if idx is not None:
         write_hist(hist_dir / f"{INDEX}.json", idx)

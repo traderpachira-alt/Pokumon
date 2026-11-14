@@ -260,3 +260,15 @@ textarea.code { width: 100%; font: 12px/1.4 var(--mono); border: 1px solid var(-
 .ix4 { background: none; color: var(--muted); border: 1px dashed var(--line); }
 .mk { font: 500 11px var(--sans); color: var(--muted); min-width: 36px; text-align: left; }
 .mk.risk { color: #fff; background: var(--down); border-radius: 5px; padding: 1px 6px; font-weight: 700; min-width: 0; }
+
+/* Tedbir ikonu ve açılır pencere */
+.tedbir { border: 0; background: none; padding: 0 0 0 5px; color: #d98a00; cursor: pointer; vertical-align: -2px; line-height: 0; }
+.tedbir:hover, .tedbir:focus-visible { color: var(--down); }
+.dhead h1 .tedbir svg { width: 20px; height: 20px; }
+.pop { position: fixed; z-index: 40; max-width: min(320px, calc(100vw - 16px)); background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px #0003; padding: 10px 12px; font-size: 13px; }
+.pop b { display: block; margin-bottom: 6px; }
+.pop ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.pop li span { display: block; font-weight: 600; color: var(--down); }
+.pop li small { color: var(--muted); }
+.btn.chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
