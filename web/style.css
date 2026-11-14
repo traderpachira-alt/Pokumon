@@ -254,3 +254,9 @@ textarea.code { width: 100%; font: 12px/1.4 var(--mono); border: 1px solid var(-
   .nav { order: 4; flex-basis: 100%; }
   .nav a { flex: 1; text-align: center; }
 }
+
+/* Endeks · Pazar sütunu */
+.ixmk { display: inline-flex; align-items: center; gap: 4px; }
+.ix4 { background: none; color: var(--muted); border: 1px dashed var(--line); }
+.mk { font: 500 11px var(--sans); color: var(--muted); min-width: 36px; text-align: left; }
+.mk.risk { color: #fff; background: var(--down); border-radius: 5px; padding: 1px 6px; font-weight: 700; min-width: 0; }

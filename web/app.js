@@ -76,9 +76,15 @@ const ICHI = { above: ['Bulut üstü', 'up'], below: ['Bulut altı', 'down'], in
 /* Endeks katmanı: her hisse yer aldığı en dar endeksle etiketlenir (BIST 30 ⊂ 50 ⊂ 100 ⊂ TÜM). */
 const TIER_RANK = { '30': 0, '50': 1, '100': 2, 'TÜM': 3 };
 const tierRank = s => TIER_RANK[s.idx] ?? 4;
-const tierChip = s => s.idx ? `<span class="ix ix${tierRank(s)}">${s.idx === 'TÜM' ? 'TÜM' : 'BIST ' + s.idx}</span>` : '—';
+const MKT_RANK = { 'Yıldız': 0, 'Ana': 1, 'Alt': 2, 'YİP': 3, 'GSP': 4, 'PÖİP': 5 };
+const MKT_NAME = { 'Yıldız': 'Yıldız Pazar', 'Ana': 'Ana Pazar', 'Alt': 'Alt Pazar', 'YİP': 'Yakın İzleme Pazarı', 'GSP': 'Girişim Sermayesi Pazarı', 'PÖİP': 'Piyasa Öncesi İşlem Platformu' };
+const tierChip = s => {
+  const ix = s.idx ? `<span class="ix ix${tierRank(s)}">${s.idx === 'TÜM' ? 'TÜM' : 'BIST ' + s.idx}</span>` : '<span class="ix ix4">Endeks dışı</span>';
+  const mk = s.mkt ? `<span class="mk${s.mkt === 'YİP' ? ' risk' : ''}" title="${MKT_NAME[s.mkt] || s.mkt}">${s.mkt}</span>` : '';
+  return `<span class="ixmk">${ix}${mk}</span>`;
+};
 const TEXTCOLS = {
-  _idx:    { label: 'Endeks', sortKey: tierRank, cell: tierChip, title: 'Hissenin yer aldığı en dar endeks' },
+  _idx:    { label: 'Endeks · Pazar', sortKey: s => tierRank(s) * 10 + (MKT_RANK[s.mkt] ?? 9), cell: tierChip, title: 'Hissenin yer aldığı en dar endeks ve işlem gördüğü pazar' },
   _trend:  { label: 'Trend',  sortKey: s => ({ up: 2, flat: 1, down: 0 })[s.trend] ?? null,
              cell: s => s.trend ? `<span class="chip ${TREND[s.trend][1]}">${TREND[s.trend][0]}</span>` : '—' },
   _st:     { label: 'Supertrend', sortKey: s => s.stTrend ? (s.stTrend === 'up' ? 2 : 0) + (s.stFlip ? 1 : 0) : null,
@@ -140,7 +146,7 @@ const OPS = { '>': (a, b) => a > b, '<': (a, b) => a < b };
    ============================================================ */
 const KEY = 'tahta:v1';
 const state = Object.assign({
-  view: 'fiyat', sort: { key: 'turnover', dir: -1 }, preset: 'all', sector: '', index: '', filters: [], watch: [], saved: [],
+  view: 'fiyat', sort: { key: 'turnover', dir: -1 }, preset: 'all', sector: '', index: '', market: '', filters: [], watch: [], saved: [],
   compare: ['XU100'],
   chart: { range: '6A', sma20: false, sma50: true, sma200: true, bb: false, vwma: false, ichi: false, st: false,
            rsi: true, stoch: false, macd: true, fisher: false, atr: false },
@@ -207,6 +213,7 @@ function filtered() {
     preset.test(s) &&
     (!state.sector || s.sector === state.sector) &&
     (!state.index || tierRank(s) <= TIER_RANK[state.index]) &&
+    (!state.market || s.mkt === state.market) &&
     state.filters.every(f => {
       const v = s[f.key], fd = FIELDS[f.key];
       if (f.value === '' || f.value == null) return true;
@@ -251,16 +258,17 @@ function tableHtml(rows, cols, { sortable = true, highlight = null } = {}) {
 
 /* Kayıtlı taramalar: hazır tarama + endeks + sektör + filtreler + görünüm + sıralama */
 let savingOpen = false;
-const screenOf = () => ({ preset: state.preset, index: state.index, sector: state.sector, view: state.view,
+const screenOf = () => ({ preset: state.preset, index: state.index, market: state.market, sector: state.sector, view: state.view,
   sort: { ...state.sort }, filters: state.filters.filter(f => f.value !== '').map(f => ({ ...f })) });
 const sameScreen = sv => {
   const c = screenOf();
-  return c.preset === sv.preset && c.index === sv.index && c.sector === sv.sector && JSON.stringify(c.filters) === JSON.stringify(sv.filters);
+  return c.preset === sv.preset && c.index === sv.index && (c.market || '') === (sv.market || '') && c.sector === sv.sector && JSON.stringify(c.filters) === JSON.stringify(sv.filters);
 };
 function describeScreen(sv) {
   const p = [];
   if (sv.preset && sv.preset !== 'all') p.push(PRESETS.find(x => x.id === sv.preset)?.label);
   if (sv.index) p.push('BIST ' + sv.index);
+  if (sv.market) p.push(MKT_NAME[sv.market] || sv.market);
   if (sv.sector) p.push(sv.sector);
   for (const f of sv.filters || []) p.push(`${FIELDS[f.key]?.label} ${f.op} ${f.value}${FIELDS[f.key]?.pct ? '%' : ''}`);
   return p.join(' · ') || 'Tüm hisseler';
@@ -293,6 +301,8 @@ function renderScreener() {
       </div>
       <label class="sr" for="indexSel">Endeks</label>
       <select id="indexSel" class="btn">${[['', 'Tüm hisseler'], ['30', 'BIST 30'], ['50', 'BIST 50'], ['100', 'BIST 100']].map(([v, l]) => `<option value="${v}"${v === state.index ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      <label class="sr" for="marketSel">Pazar</label>
+      <select id="marketSel" class="btn">${[['', 'Tüm pazarlar'], ['Yıldız', 'Yıldız Pazar'], ['Ana', 'Ana Pazar'], ['Alt', 'Alt Pazar'], ['YİP', 'Yakın İzleme Pazarı']].map(([v, l]) => `<option value="${v}"${v === state.market ? ' selected' : ''}>${l}</option>`).join('')}</select>
       <label class="sr" for="sector">Sektör</label>
       <select id="sector" class="btn"><option value="">Tüm sektörler</option>${sectors.map(s => `<option${s === state.sector ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select>
       <button type="button" class="btn" id="addFilter">+ Filtre ekle</button>
@@ -778,7 +788,7 @@ view.addEventListener('click', e => {
   if (d.cancelsave) { savingOpen = false; renderScreener(); return; }
   if (d.load != null) {
     const sv = state.saved[+d.load];
-    if (sv) Object.assign(state, { preset: sv.preset, index: sv.index, sector: sv.sector, view: VIEWS[sv.view] ? sv.view : state.view,
+    if (sv) Object.assign(state, { preset: sv.preset, index: sv.index, market: sv.market || '', sector: sv.sector, view: VIEWS[sv.view] ? sv.view : state.view,
       sort: { ...sv.sort }, filters: sv.filters.map(f => ({ ...f })) });
     persist(); renderScreener(); return;
   }
@@ -806,6 +816,7 @@ view.addEventListener('click', e => {
 view.addEventListener('change', e => {
   if (e.target.id === 'sector') { state.sector = e.target.value; persist(); renderScreener(); return; }
   if (e.target.id === 'indexSel') { state.index = e.target.value; persist(); renderScreener(); return; }
+  if (e.target.id === 'marketSel') { state.market = e.target.value; persist(); renderScreener(); return; }
   const row = e.target.closest('.frow');
   if (!row) return;
   const f = state.filters[+row.dataset.i];

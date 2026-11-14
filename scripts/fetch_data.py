@@ -322,6 +322,54 @@ def load_universe(cache_dir: Path):
     return universe, tier, names, date
 
 
+# KAP "Pazarlar" sayfası tüm pay piyasası pazarlarını ve şirket kodlarını içerir (sayfa herkese açık).
+KAP_MARKETS_URL = "https://www.kap.org.tr/tr/Pazarlar?market=WUlMRElaIFBBWkFS"
+MARKET_SHORT = {  # KAP pazar adı -> kısa etiket (sıra = öncelik, birden fazla pazarda görünen kod için)
+    "YILDIZ PAZAR": "Yıldız", "ANA PAZAR": "Ana", "ALT PAZAR": "Alt", "YAKIN İZLEME PAZARI": "YİP",
+    "GİRİŞİM SERMAYESİ PAZARI": "GSP", "PİYASA ÖNCESİ İŞLEM PLATFORMU": "PÖİP",
+}
+
+
+def load_markets(cache_dir: Path, max_age_h: float = 20) -> dict[str, str]:
+    """{KOD: 'Yıldız' | 'Ana' | 'Alt' | 'YİP' | ...}; KAP'a ulaşılamazsa önbellek."""
+    import re
+    import urllib.request
+
+    cache = cache_dir / "pazar.json"
+    try:
+        old = json.loads(cache.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        old = {}
+    if old.get("data") and time.time() - old.get("_ts", 0) < max_age_h * 3600:
+        return old["data"]
+    try:
+        req = urllib.request.Request(KAP_MARKETS_URL, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            t = r.read().decode("utf-8", "replace").replace('\\"', '"')
+        rank = {k: i for i, k in enumerate(MARKET_SHORT)}
+        out, fin, cur = {}, None, None
+        for m in re.finditer(r'"financialMarketName":"([^"]+)"|"marketName":"([^"]+)"|"stockCode":"([^"]*)"', t):
+            if m.group(1):
+                fin = m.group(1)
+            elif m.group(2):
+                cur = m.group(2) if fin == "PAY PİYASASI" and m.group(2) in MARKET_SHORT else None
+            elif cur:
+                for code in m.group(3).split(","):
+                    code = code.strip()
+                    if code and (code not in out or rank[cur] < rank[out[code]]):
+                        out[code] = cur
+        data = {c: MARKET_SHORT[m] for c, m in out.items()}
+        if sum(v == "Yıldız" for v in data.values()) < 50:
+            raise RuntimeError(f"beklenenden az hisse ({len(data)})")
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"_ts": time.time(), "data": data}, ensure_ascii=False), encoding="utf-8")
+        print("Pazarlar (KAP): " + ", ".join(f"{v} {sum(x == v for x in data.values())}" for v in MARKET_SHORT.values()), flush=True)
+        return data
+    except Exception as e:
+        print(f"  Pazar listesi alınamadı ({e}); önbellek kullanılacak.", flush=True)
+        return old.get("data") or {}
+
+
 def download_prices(symbols: list[str]) -> dict[str, pd.DataFrame]:
     import yfinance as yf
 
@@ -422,6 +470,10 @@ def main():
 
     cache_dir = Path(args.cache_dir)
     tickers, tier, bist_names, index_date = load_universe(cache_dir)
+    markets = load_markets(cache_dir)
+    # Yakın İzleme Pazarı hisseleri endekslerde yer almaz; riskleri görünsün diye taramaya eklenir.
+    yip = sorted(c for c, m in markets.items() if m == "YİP" and c not in tier)
+    tickers = tickers + yip
     if args.limit:
         tickers = tickers[: args.limit]
     out = Path(args.out)
@@ -461,7 +513,7 @@ def main():
             s = is_summ.get(t) or {}
             f = {"name": s.get("name") or bist_names.get(t), "sector": s.get("sector"),
                  "freeFloat": s.get("freeFloat"), **isyatirim.ratios(m["last"], s, is_fin.get(t))}
-        stocks.append({"t": t, "idx": tier.get(t), **f, **m})
+        stocks.append({"t": t, "idx": tier.get(t), "mkt": markets.get(t), **f, **m})
     index_summary = None
     if idx is not None:
         write_hist(hist_dir / f"{INDEX}.json", idx)
