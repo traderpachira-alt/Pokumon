@@ -181,7 +181,7 @@ def load(codes: list[str], cache_path, max_age_days: float = 3, max_per_run: int
 def ratios(price: float | None, summ: dict | None, fin: dict | None) -> dict:
     """Güncel fiyat + son mali tablolardan oranlar (son 12 ay)."""
     out = {k: None for k in ("mcap", "pe", "pb", "evEbitda", "netMargin", "opMargin", "roe", "de",
-                             "revGrowth", "epsGrowth", "divYield", "netDebt", "period", "finGroup")}
+                             "revGrowth", "epsGrowth", "payout", "netDebt", "period", "finGroup")}
     shares = None
     if summ and summ.get("mcapMn") and summ.get("close"):
         shares = summ["mcapMn"] * 1e6 / summ["close"]
@@ -241,6 +241,6 @@ def ratios(price: float | None, summ: dict | None, fin: dict | None) -> dict:
             out["de"] = debt / eq
         out["revGrowth"] = yoy("rev")
         div = ttm("div")
-        if mcap and div is not None:
-            out["divYield"] = abs(div) / mcap
+        if div is not None and net and net > 0:
+            out["payout"] = abs(div) / net  # son 12 ayda ödenen temettü / son 12 ay net kâr
     return out

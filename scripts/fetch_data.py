@@ -150,6 +150,44 @@ def vwma(c, v, n=20):
     return (cv / vs.where(vs > 0)).to_numpy()
 
 
+def div_metrics(df: pd.DataFrame) -> dict:
+    """Temettü ölçütleri (Yahoo temettü geçmişi, bölünmelere göre düzeltilmiş, hisse başı TL)."""
+    keys = ("divTtm", "divYield", "lastDivDate", "lastDivAmt", "divFreq", "divYears5", "divStreak", "divGrowth", "divAvg5")
+    out = dict.fromkeys(keys)
+    if "Dividends" not in df.columns:
+        return out
+    last_px, end = float(df["Close"].iloc[-1]), df.index[-1]
+    d = df["Dividends"]
+    d = d[d > 0]
+    out["divYears5"], out["divStreak"] = 0, 0
+    if d.empty:
+        out["divTtm"], out["divYield"], out["divFreq"] = 0.0, 0.0, 0
+        return out
+    year_ago = end - pd.DateOffset(years=1)
+    ttm = d[d.index > year_ago]
+    prev = d[(d.index > year_ago - pd.DateOffset(years=1)) & (d.index <= year_ago)]
+    out["divTtm"] = float(ttm.sum())
+    out["divYield"] = out["divTtm"] / last_px if last_px else None
+    out["divFreq"] = int(len(ttm))
+    out["lastDivDate"] = d.index[-1].strftime("%Y-%m-%d")
+    out["lastDivAmt"] = float(d.iloc[-1])
+    out["divGrowth"] = (out["divTtm"] / float(prev.sum()) - 1) if prev.sum() > 0 else None
+    years = set(d.index.year)
+    this = end.year
+    window = range(this - 4, this + 1)  # bu yıl dahil son 5 takvim yılı
+    out["divYears5"] = sum(y in years for y in window)
+    # Kesintisiz yıl: bu yıl henüz ödemediyse geçen yıldan saymaya başla
+    y = this if this in years else this - 1
+    streak = 0
+    while y in years:
+        streak, y = streak + 1, y - 1
+    out["divStreak"] = streak
+    by_year = d.groupby(d.index.year).sum()
+    full = [by_year.get(yy, 0.0) for yy in range(this - 5, this)]  # tamamlanmış son 5 yıl
+    out["divAvg5"] = (sum(full) / 5) / last_px if last_px else None
+    return out
+
+
 def pct(a, b):
     try:
         a, b = float(a), float(b)
@@ -474,14 +512,18 @@ def download_prices(symbols: list[str]) -> dict[str, pd.DataFrame]:
         if not todo:
             break
         data = yf.download(
-            [s + ".IS" for s in todo], period="2y", interval="1d", auto_adjust=True,
+            [s + ".IS" for s in todo], period="5y", interval="1d", auto_adjust=False, actions=True,  # fiyatlar yalnızca bölünmelere göre düzeltilmiş (TradingView gibi)
             group_by="ticker", progress=False, threads=True,
         )
         have = set(data.columns.get_level_values(0)) if isinstance(data.columns, pd.MultiIndex) else set()
         for s in todo:
             if s + ".IS" not in have:
                 continue
-            df = data[s + ".IS"][["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["Close"])
+            sub = data[s + ".IS"]
+            cols = [c for c in ["Open", "High", "Low", "Close", "Volume", "Dividends"] if c in sub.columns]
+            df = sub[cols].dropna(subset=["Close"])
+            if "Dividends" not in df.columns:
+                df = df.assign(Dividends=0.0)
             df = df[~df.index.duplicated(keep="last")].sort_index()
             if len(df) >= 30:
                 out[s] = df
@@ -495,7 +537,7 @@ def download_prices(symbols: list[str]) -> dict[str, pd.DataFrame]:
 def make_sample(symbols: list[str]):
     """İnternet olmadan arayüzü denemek için rastgele ÖRNEK veri (gerçek değildir)."""
     rng = np.random.default_rng(7)
-    dates = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=500)
+    dates = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=1260)
     prices, funds = {}, {}
     for s in symbols:
         drift, vol = rng.normal(0.0008, 0.0008), rng.uniform(0.015, 0.035)
@@ -504,7 +546,11 @@ def make_sample(symbols: list[str]):
         h = np.maximum(o, c) * (1 + np.abs(rng.normal(0, vol / 2, len(dates))))
         lo = np.minimum(o, c) * (1 - np.abs(rng.normal(0, vol / 2, len(dates))))
         v = rng.lognormal(16, 0.5, len(dates)) * (1 + 3 * (rng.random(len(dates)) > 0.97))
-        prices[s] = pd.DataFrame({"Open": o, "High": h, "Low": lo, "Close": c, "Volume": v}, index=dates)
+        dv = np.zeros(len(dates))
+        if rng.random() < 0.6:  # örnek: yılda bir temettü
+            for j in range(len(dates) - 1, 0, -252):
+                dv[j] = c[j] * rng.uniform(0.01, 0.08)
+        prices[s] = pd.DataFrame({"Open": o, "High": h, "Low": lo, "Close": c, "Volume": v, "Dividends": dv}, index=dates)
         maybe = lambda x: None if rng.random() < 0.1 else x  # noqa: E731
         funds[s] = {
             "name": f"{s} (örnek)", "sector": SAMPLE_SECTORS[rng.integers(len(SAMPLE_SECTORS))],
@@ -513,7 +559,7 @@ def make_sample(symbols: list[str]):
             "evEbitda": maybe(float(rng.uniform(2, 25))), "netMargin": maybe(float(rng.uniform(-0.1, 0.35))),
             "opMargin": maybe(float(rng.uniform(-0.05, 0.4))), "roe": maybe(float(rng.uniform(-0.1, 0.6))),
             "de": maybe(float(rng.uniform(0, 2.5))), "revGrowth": maybe(float(rng.uniform(-0.3, 1.2))),
-            "epsGrowth": maybe(float(rng.uniform(-0.8, 2))), "divYield": maybe(float(rng.uniform(0, 0.08))),
+            "epsGrowth": maybe(float(rng.uniform(-0.8, 2))), "payout": maybe(float(rng.uniform(0, 0.9))),
             "netDebt": None, "period": "2026/9", "finGroup": "XI_29",
         }
     return prices, funds
@@ -544,7 +590,15 @@ def write_hist(path: Path, df: pd.DataFrame):
     def r(a):
         return [round(float(x), 2 if abs(x) >= 1 else 4) for x in a]
 
+    div = df["Dividends"] if "Dividends" in df.columns else pd.Series(dtype=float)
+    div = div[div > 0]
+    # O günkü verim: temettü düşülmeden önceki fiyata (bir önceki işlem gününün kapanışına) göre
+    full_close = df["Close"].shift(1)
+    df = df[df.index >= df.index[-1] - pd.DateOffset(years=2)]  # grafik için son 2 yıl yeterli
     payload = {
+        # [tarih, hisse başı TL, o günkü kapanışa göre verim]
+        "div": [[d.strftime("%Y-%m-%d"), round(float(x), 4), round(float(x) / float(full_close[d]), 5) if pd.notna(full_close.get(d)) else None]
+                for d, x in div.items()],
         "d": [d.strftime("%Y-%m-%d") for d in df.index],
         "o": r(df["Open"]), "h": r(df["High"]), "l": r(df["Low"]), "c": r(df["Close"]),
         "v": [int(x) for x in df["Volume"].fillna(0)],
@@ -603,6 +657,7 @@ def main():
         df = prices[t]
         write_hist(hist_dir / f"{t}.json", df)
         m = metrics(df, idx)
+        m.update(div_metrics(df))
         if args.sample:
             f = sample_funds[t]
         else:

@@ -58,7 +58,16 @@ const FIELDS = {
   freeFloat: { label: 'Halka açıklık',    f: fmt.pctPlain, pct: 1 },
   revGrowth: { label: 'Satış büyümesi',   f: fmt.pct, pct: 1, color: 1, title: 'Yılbaşından bu yana, geçen yılın aynı dönemine göre' },
   epsGrowth: { label: 'Kâr büyümesi',     f: fmt.pct, pct: 1, color: 1, title: 'Yılbaşından bu yana, geçen yılın aynı dönemine göre' },
-  divYield:  { label: 'Temettü verimi',   f: fmt.pctPlain, pct: 1 },
+  divYield:  { label: 'Temettü verimi',   f: fmt.pctPlain, pct: 1, title: 'Son 12 ayda ödenen hisse başı temettü / güncel fiyat' },
+  divTtm:    { label: '12A temettü ₺',    f: x => !ok(x) || x === 0 ? '—' : fmt.price(x), title: 'Son 12 ayda ödenen hisse başı brüt temettü (TL)' },
+  lastDivDate: { label: 'Son ödeme',      f: fmt.date, nofilter: 1, title: 'Son temettünün hak kullanım (eski: ex-date) tarihi' },
+  lastDivAmt: { label: 'Son tutar ₺',     f: fmt.price, title: 'Son ödenen hisse başı brüt temettü (TL)' },
+  divFreq:   { label: '12A ödeme',        f: x => !ok(x) || x === 0 ? '—' : x + '×', title: 'Son 12 aydaki temettü ödemesi sayısı' },
+  divYears5: { label: 'Son 5 yıl',        f: x => !ok(x) ? '—' : `${x}/5`, title: 'Bu yıl dahil son 5 takvim yılının kaçında temettü ödendi' },
+  divStreak: { label: 'Kesintisiz',       f: x => !ok(x) || x === 0 ? '—' : x + ' yıl', title: 'Kaç yıldır her yıl temettü ödüyor (yaklaşık 5 yıllık veriyle; en fazla 6 takvim yılı görünür)' },
+  divGrowth: { label: 'Temettü değişimi', f: fmt.pct, pct: 1, color: 1, title: 'Son 12 ay toplamı / önceki 12 ay toplamı' },
+  divAvg5:   { label: '5Y ort. verim',    f: fmt.pctPlain, pct: 1, title: 'Son 5 tamamlanmış yılın ortalama yıllık temettüsü / güncel fiyat' },
+  payout:    { label: 'Dağıtma oranı',    f: fmt.pctPlain, pct: 1, title: 'Son 12 ayda ödenen temettü / son 12 ay net kâr (İş Yatırım mali tabloları)' },
   stochK:    { label: 'Stoch RSI',        f: fmt.num, title: 'Stokastik RSI %K (14, 14, 3, 3)' },
   fisher:    { label: 'Fisher',           f: fmt.num2, color: 1, title: 'Ehlers Fisher dönüşümü (9)' },
   atrPct:    { label: 'ATR %',            f: fmt.pctPlain, pct: 1, title: 'ATR 14 / fiyat: günlük ortalama oynaklık' },
@@ -69,6 +78,7 @@ const VIEWS = {
   fiyat:    { label: 'Fiyat',    cols: ['_idx', 'last', 'chg1d', 'chg1w', 'chg1m', 'chg3m', 'chg1y', 'ytd', 'turnover', 'volRatio', 'mcap'] },
   trend:    { label: 'Trend',    cols: ['_idx', 'last', 'chg1d', '_trend', '_st', '_ichi', '_cross', 'vsSma50', 'vsSma200', 'vsVwma20', 'stDist', 'distHi52', 'rs3m'] },
   momentum: { label: 'Momentum', cols: ['_idx', 'last', 'chg1d', 'rsi', 'stochK', 'macdPct', 'fisher', '_cross', 'volRatio', 'atrPct', 'volat', 'beta'] },
+  temettu:  { label: 'Temettü',  cols: ['_idx', 'last', 'divYield', 'divTtm', 'lastDivDate', 'lastDivAmt', 'divFreq', 'divYears5', 'divStreak', 'divGrowth', 'divAvg5', 'payout', 'pe'] },
   temel:    { label: 'Temel',    cols: ['_idx', 'last', 'mcap', 'pe', 'pb', 'evEbitda', 'netMargin', 'roe', 'de', 'revGrowth', 'epsGrowth', 'divYield', 'freeFloat', '_sector'] },
 };
 const ST = { up: ['Al', 'up'], down: ['Sat', 'down'] };
@@ -178,6 +188,8 @@ const PRESETS = [
   { id: 'high52',   label: '52H zirvesinde',   test: s => s.distHi52 > -0.03, hint: '52 haftalık zirveye %3\'ten yakın', sort: ['distHi52', -1] },
   { id: 'volspike', label: 'Hacim patlaması',  test: s => s.volRatio >= 2, hint: 'Hacim, 20 günlük ortalamanın 2 katı', sort: ['volRatio', -1] },
   { id: 'tedbir',   label: '⚠ Tedbirli',       test: s => !!s.tedbir?.length, hint: 'Borsa İstanbul tedbiri uygulanan hisseler' },
+  { id: 'divHigh',  label: 'Yüksek temettü',   test: s => s.divYield >= 0.06, hint: 'Son 12 ay temettü verimi ≥ %6', sort: ['divYield', -1] },
+  { id: 'divReg',   label: 'Düzenli temettü',  test: s => s.divYears5 >= 5, hint: 'Son 5 yılın her birinde temettü ödedi', sort: ['divAvg5', -1] },
   { id: 'value',    label: 'Ucuz',             test: s => s.pe > 0 && s.pe < 8 && s.pb > 0 && s.pb < 1.5, hint: 'F/K < 8 ve PD/DD < 1,5', sort: ['pe', 1] },
   { id: 'quality',  label: 'Kârlı büyüme',     test: s => s.roe > 0.25 && s.netMargin > 0.1 && s.revGrowth > 0, hint: 'ÖK kârlılığı > %25, net marj > %10, satış büyüyor', sort: ['roe', -1] },
 ];
@@ -240,7 +252,7 @@ function sectorMedians(stocks) {
   const out = {};
   for (const [sec, list] of Object.entries(by)) {
     out[sec] = { n: list.length };
-    for (const k of ['pe', 'pb', 'evEbitda', 'netMargin', 'roe', 'de', 'revGrowth', 'epsGrowth', 'divYield', 'freeFloat', 'mcap'])
+    for (const k of ['pe', 'pb', 'evEbitda', 'netMargin', 'roe', 'de', 'revGrowth', 'epsGrowth', 'divYield', 'payout', 'freeFloat', 'mcap'])
       out[sec][k] = median(list.filter(s => !((k === 'pe' || k === 'evEbitda') && s[k] <= 0)).map(s => s[k]));
   }
   return out;
@@ -321,7 +333,7 @@ function renderScreener() {
   destroyCharts();
   document.title = 'Tahta';
   const sectors = [...new Set(DATA.stocks.map(s => s.sector).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'tr'));
-  const numericKeys = Object.keys(FIELDS);
+  const numericKeys = Object.keys(FIELDS).filter(k => !FIELDS[k].nofilter);
   const counts = Object.fromEntries(PRESETS.map(p => [p.id, DATA.stocks.filter(p.test).length]));
   const rows = sorted(filtered());
   const cols = VIEWS[state.view].cols;
@@ -417,7 +429,7 @@ async function renderDetail(t) {
   ];
   const fundRows = [
     ['Piyasa değeri', 'mcap', x => fmt.big(x) + ' ₺'], ['F/K', 'pe'], ['PD/DD', 'pb'], ['FD/FAVÖK', 'evEbitda'],
-    ['Net marj', 'netMargin'], ['ÖK kârlılığı', 'roe'], ['Borç / ÖK', 'de'], ['Satış büyümesi', 'revGrowth'], ['Kâr büyümesi', 'epsGrowth'], ['Temettü verimi', 'divYield'], ['Halka açıklık', 'freeFloat'],
+    ['Net marj', 'netMargin'], ['ÖK kârlılığı', 'roe'], ['Borç / ÖK', 'de'], ['Satış büyümesi', 'revGrowth'], ['Kâr büyümesi', 'epsGrowth'], ['Temettü verimi', 'divYield'], ['Dağıtma oranı', 'payout'], ['Halka açıklık', 'freeFloat'],
   ];
 
   view.innerHTML = `
@@ -470,6 +482,8 @@ async function renderDetail(t) {
     </section>
   </div>
 
+  ${isIdx ? '' : '<section class="panel" id="divPanel"><h2>Temettü geçmişi</h2><p class="muted">Yükleniyor…</p></section>'}
+
   ${peers.length > 1 ? `<section class="panel peers"><h2>${esc(s.sector)} sektöründeki hisseler</h2>
     <div class="tablewrap">${tableHtml(sorted(peers), VIEWS[state.view].cols, { sortable: false, highlight: t })}</div></section>` : ''}`;
 
@@ -477,9 +491,40 @@ async function renderDetail(t) {
     const h = await loadHist(t);
     if (location.hash !== `#/h/${t}`) return; // kullanıcı bu arada başka sayfaya geçti
     drawCharts(h);
+    if (!isIdx) renderDivPanel(s, h);
   } catch (e) {
     $('#cMain').innerHTML = '<p class="empty">Grafik verisi yüklenemedi.</p>';
   }
+}
+
+function renderDivPanel(s, h) {
+  const el = $('#divPanel');
+  if (!el) return;
+  const div = (h.div || []).slice().reverse();
+  if (!div.length) { el.innerHTML = '<h2>Temettü geçmişi</h2><p class="muted">Son 5 yılda temettü ödemesi görünmüyor.</p>'; return; }
+  const closeOn = new Map(h.d.map((d, i) => [d, h.c[i]]));
+  // Ödeme günündeki (ya da hemen önceki işlem günündeki) kapanışa göre o günkü verim
+  const pxAt = d => { if (closeOn.has(d)) return closeOn.get(d); const i = h.d.findIndex(x => x > d); return i > 0 ? h.c[i - 1] : null; };
+  const byYear = {};
+  for (const [d, a] of div) byYear[d.slice(0, 4)] = (byYear[d.slice(0, 4)] || 0) + a;
+  const years = Object.keys(byYear).sort().reverse();
+  el.innerHTML = `<h2>Temettü geçmişi</h2>
+  <div class="divgrid">
+    <dl class="kv">
+      <dt>Son 12 ay verim</dt><dd>${fmt.pctPlain(s.divYield)}</dd><dd class="note">${s.divTtm ? fmt.price(s.divTtm) + ' ₺' : ''}</dd>
+      <dt>Son 5 yıl</dt><dd>${FIELDS.divYears5.f(s.divYears5)}</dd><dd class="note">${s.divStreak ? s.divStreak + ' yıldır kesintisiz' : ''}</dd>
+      <dt>5 yıllık ort. verim</dt><dd>${fmt.pctPlain(s.divAvg5)}</dd><dd class="note"></dd>
+      <dt>Temettü değişimi</dt><dd class="${cls(s.divGrowth)}">${fmt.pct(s.divGrowth)}</dd><dd class="note">son 12 ay / önceki 12 ay</dd>
+      <dt>Dağıtma oranı</dt><dd>${fmt.pctPlain(s.payout)}</dd><dd class="note">${s.payout != null ? 'temettü / net kâr' : ''}</dd>
+    </dl>
+    <div class="tablewrap flat"><table class="grid"><thead><tr><th class="tk">Tarih</th><th>Hisse başı ₺</th><th title="Ödeme günündeki kapanışa göre">O günkü verim</th><th>Bugünkü fiyata göre</th></tr></thead><tbody>
+      ${div.slice(0, 12).map(([d, a, y]) => { const p = pxAt(d); const yy = y ?? (p ? a / p : null); return `<tr><td class="tk">${fmt.date(d)}</td><td>${fmt.price(a)}</td><td>${fmt.pctPlain(yy)}</td><td>${fmt.pctPlain(a / s.last)}</td></tr>`; }).join('')}
+    </tbody></table></div>
+    <div class="tablewrap flat"><table class="grid"><thead><tr><th class="tk">Yıl</th><th>Toplam ₺</th><th>Bugünkü fiyata göre</th></tr></thead><tbody>
+      ${years.map(y => `<tr><td class="tk">${y}</td><td>${fmt.price(byYear[y])}</td><td>${fmt.pctPlain(byYear[y] / s.last)}</td></tr>`).join('')}
+    </tbody></table></div>
+  </div>
+  <p class="muted" style="font-size:12px;margin:8px 0 0">Tutarlar brüt, bedelsiz sermaye artırımlarına göre düzeltilmiştir (Yahoo Finance). Tarih, hak kullanım tarihidir.</p>`;
 }
 
 function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }

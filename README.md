@@ -6,10 +6,13 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
 ## Ne var?
 
 - **Tarama:** BIST TÜM'deki tüm hisseler (~580); her hissenin BIST 30 / 50 / 100 / TÜM etiketi.
-  Fiyat / Trend / Momentum / Temel sütun grupları, sıralama, endeks ve sektör filtresi,
+  Fiyat / Trend / Momentum / Temettü / Temel sütun grupları, BIST 30/50/100/TÜM ve Yıldız/Ana/Alt/YİP etiketi, sıralama, endeks ve sektör filtresi,
   kendi filtrelerin (ör. `RSI 14 < 30`, `F/K < 8`) ve hazır taramalar (aşırı satım/alım, güçlü trend,
   golden cross, MACD / Supertrend / Fisher al, Stoch RSI dipte, bulut üstünde, 52H zirvesi, hacim patlaması,
   ucuz, kârlı büyüme). ★ ile izleme listesi.
+- **Temettü:** son 12 ay verim ve hisse başı tutar, son ödeme, 12 ayda ödeme sayısı, son 5 yılda kaç yıl ödediği,
+  kesintisiz yıl, temettü değişimi, 5 yıllık ortalama verim, dağıtma oranı; hisse sayfasında ödeme geçmişi.
+- **Tedbir uyarısı:** tedbirli hissenin yanında ⚠; üzerine gelince/dokununca tedbirler.
 - **Kayıtlı taramalar:** filtre + endeks + sektör + hazır tarama kombinasyonunu adıyla kaydet, tek dokunuşla aç.
 - **Hisse detayı:** mum grafik + hacim; katmanlar: SMA20/50/200, VWMA20, Bollinger, Ichimoku, Supertrend;
   alt paneller: RSI, Stoch RSI, MACD, Fisher, ATR. Getiriler, 52 haftalık aralık, teknik özet,
@@ -23,7 +26,9 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
 
 | Veri | Kaynak | Sıklık |
 |---|---|---|
-| Fiyat, hacim (2 yıl, günlük) | Yahoo Finance (~15 dk gecikmeli) | seans boyunca saatte bir |
+| Fiyat, hacim, temettü (5 yıl, günlük; bölünmelere göre düzeltilmiş) | Yahoo Finance (~15 dk gecikmeli) | seans boyunca saatte bir |
+| Pazar (Yıldız/Ana/Alt/YİP) | KAP Pazarlar sayfası | günde bir |
+| Tedbirler | GCM Yatırım tedbir listesi + `scripts/tedbirler.csv` | her çalışmada |
 | Endeks bileşenleri (BIST 30/50/100/TÜM) | Borsa İstanbul resmi dosyası | her çalışmada |
 | Sektör, halka açıklık, piyasa değeri | İş Yatırım özet tablosu | 6 saatte bir |
 | Bilanço, gelir tablosu, nakit akışı (TL) | İş Yatırım mali tablolar | şirket başına 3 günde bir |
@@ -61,4 +66,5 @@ scripts/dev.sh --real   # gerçek veriyle
 - Enflasyon muhasebesi (TMS 29) nedeniyle TTM toplamları farklı satın alma gücündeki dönemleri birleştirir;
   oranlar yaklaşık değerlerdir. Leasing/faktoring gibi bazı şirketler için mali tablo bulunmaz.
 - Ichimoku bulutu bugünkü tarihe hizalı çizilir (26 günlük ileri kısım gösterilmez).
+- Yahoo'nun eski temettü kayıtlarında ara sıra hata olabilir (ör. TUPRS 2023/09 tutarı iki kat görünüyor).
 - Kişisel kullanım içindir, yatırım tavsiyesi değildir.

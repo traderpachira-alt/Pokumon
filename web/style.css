@@ -273,3 +273,8 @@ textarea.code { width: 100%; font: 12px/1.4 var(--mono); border: 1px solid var(-
 .pop li small { color: var(--muted); }
 .btn.chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 .pop .src { margin: 8px 0 0; font-size: 11px; color: var(--muted); }
+
+/* Temettü paneli */
+.divgrid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, .8fr); gap: 16px; align-items: start; }
+.tablewrap.flat { max-height: 330px; min-height: 0; border-radius: 8px; }
+@media (max-width: 960px) { .divgrid { grid-template-columns: 1fr; } }
