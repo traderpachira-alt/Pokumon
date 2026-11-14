@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tahta</title>
+<meta name="description" content="BIST hisseleri için teknik analiz, temel analiz ve tarama">
+<meta name="theme-color" content="#f3f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0e1513" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Tahta">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="vendor/lightweight-charts.standalone.production.js" defer></script>
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="#/" aria-label="Tahta ana sayfa"><span class="mark" aria-hidden="true"></span>Tahta</a>
+    <div class="idx" id="idx"></div>
+    <form class="search" id="searchForm" role="search">
+      <label class="sr" for="search">Hisse ara</label>
+      <input id="search" list="tickerList" placeholder="Hisse kodu, ör. THYAO" autocomplete="off" autocapitalize="characters" spellcheck="false">
+      <datalist id="tickerList"></datalist>
+    </form>
+  </div>
+</header>
+<div class="wrap">
+  <div id="banner" class="banner" hidden></div>
+  <main id="view"><p class="empty">Yükleniyor…</p></main>
+  <footer class="foot">
+    <span id="stamp"></span>
+    <span>Kaynak: Yahoo Finance, gecikmeli. Yatırım tavsiyesi değildir.</span>
+  </footer>
+</div>
+</body>
+</html>

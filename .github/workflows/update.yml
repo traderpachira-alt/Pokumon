@@ -1,0 +1,64 @@
+name: Veriyi güncelle ve yayınla
+
+on:
+  schedule:
+    # Hafta içi seans boyunca saatte bir (UTC 07:25–15:25 = TSİ 10:25–18:25).
+    # Son çalışma kapanıştan sonradır ve günün kapanış verisini alır.
+    - cron: "25 7-15 * * 1-5"
+  workflow_dispatch:
+  push:
+    paths:
+      - "web/**"
+      - "scripts/**"
+      - ".github/workflows/update.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
+
+      - run: pip install -r scripts/requirements.txt
+
+      # Temel veriler (F/K, PD/DD…) günde bir kez çekilir; arada önbellekten okunur.
+      - uses: actions/cache@v4
+        with:
+          path: .cache
+          key: fundamentals-${{ github.run_id }}
+          restore-keys: fundamentals-
+
+      - name: Veriyi çek
+        run: python scripts/fetch_data.py --out site
+
+      - name: Arayüzü ekle
+        run: cp -r web/. site/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
