@@ -106,7 +106,9 @@ const tedbirIcon = s => s.tedbir?.length
 function tedbirHtml(t) {
   const s = BY.get(t);
   if (!s?.tedbir?.length) return '';
-  return `<b>${t} · uygulanan tedbirler</b><ul>${s.tedbir.map(m => `<li><span>${esc(m.type)}</span><small>${m.from ? fmt.date(m.from) : '?'} – ${m.to ? fmt.date(m.to) : 'süresiz'}${m.note ? ' · ' + esc(m.note) : ''}</small></li>`).join('')}</ul>`;
+  const at = DATA.tedbirAt ? new Date(DATA.tedbirAt).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' }) : null;
+  return `<b>${t} · uygulanan tedbirler</b><ul>${s.tedbir.map(m => `<li><span>${esc(m.type)}</span><small>${m.from ? fmt.date(m.from) : '?'} – ${m.to ? fmt.date(m.to) : 'süresiz'}${m.note ? ' · ' + esc(m.note) : ''}</small></li>`).join('')}</ul>
+    <p class="src">Kaynak: GCM Yatırım tedbir listesi${at ? ' · ' + at : ''}. İşlem öncesi aracı kurumunuzdan teyit edin.</p>`;
 }
 const pop = document.createElement('div');
 pop.className = 'pop'; pop.setAttribute('role', 'dialog'); pop.hidden = true;

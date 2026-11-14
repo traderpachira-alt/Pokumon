@@ -371,22 +371,79 @@ def load_markets(cache_dir: Path, max_age_h: float = 20) -> dict[str, str]:
 
 
 MEASURES_FILE = HERE / "tedbirler.csv"
+# GCM Yatırım'ın herkese açık "Tedbir Kapsamındaki Pay Senetleri" tablosu (sayfanın kendi HTML'inde gelir).
+GCM_MEASURES_URL = "https://www.gcmyatirim.com.tr/borsa/tedbir-kapsamindaki-pay-senetleri"
+MEASURE_COLS = {  # tablo başlığı -> arayüzde gösterilecek ad
+    "AÇIĞA SATIŞ YASAĞI": "Açığa satış yasağı", "BRÜT TAKAS": "Brüt takas", "EMİR İPTALİ": "Emir iptali yasağı",
+    "KREDİLİ İŞLEM YASAĞI": "Kredili işlem yasağı", "PİYASA EMRİ YASAĞI": "Piyasa emri yasağı",
+    "TEK FİYAT UYGULANMASI": "Tek fiyat", "EMİR KISITLAMASI": "Emir kısıtlaması",
+}
 
 
-def load_measures(path: Path = MEASURES_FILE) -> dict[str, list[dict]]:
-    """Süresi dolmamış tedbirler: {KOD: [{"type", "from", "to", "note"}]}."""
-    out: dict[str, list[dict]] = {}
-    if not path.exists():
-        return out
-    today = dt.date.today()
+def _tr_date(x: str):
+    try:
+        return dt.datetime.strptime(x.strip(), "%d.%m.%Y").date()
+    except ValueError:
+        return None
 
-    def d(x):
+
+def fetch_gcm_measures(cache_dir: Path) -> tuple[dict[str, list[dict]], str | None]:
+    """GCM tablosundan tedbirler; alınamazsa son başarılı sonuç (önbellek). Döner: (tedbirler, güncelleme zamanı)."""
+    import html as html_lib
+    import re
+    import urllib.request
+
+    cache = cache_dir / "tedbir_gcm.json"
+    try:
+        req = urllib.request.Request(GCM_MEASURES_URL, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=40) as r:
+            page = r.read().decode("utf-8", "replace")
+        tables = [t for t in re.findall(r"<table.*?</table>", page, re.S) if "HİSSE KODU" in t]
+        if not tables:
+            raise RuntimeError("tedbir tablosu bulunamadı (sayfa yapısı değişmiş olabilir)")
+        rows = [[html_lib.unescape(re.sub(r"<[^>]+>", "", c)).strip()
+                 for c in re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", tr, re.S)]
+                for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", tables[0], re.S)]
+        head, body = rows[0], rows[1:]
+        if head[:3] != ["HİSSE KODU", "BAŞLANGIÇ TARİHİ", "BİTİŞ TARİHİ"]:
+            raise RuntimeError(f"beklenmeyen tablo başlığı: {head[:3]}")
+        out: dict[str, list[dict]] = {}
+        for r in body:
+            if len(r) < len(head) or not re.fullmatch(r"[A-Z0-9]{3,6}", r[0]):
+                continue
+            start, end = _tr_date(r[1]), _tr_date(r[2])
+            for col, val in zip(head[3:], r[3:]):
+                if val and col in MEASURE_COLS:
+                    out.setdefault(r[0], []).append({
+                        "type": MEASURE_COLS[col], "from": start.isoformat() if start else None,
+                        "to": end.isoformat() if end else None, "note": None})
+        stamp = dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes")
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"at": stamp, "data": out}, ensure_ascii=False), encoding="utf-8")
+        return out, stamp
+    except Exception as e:
+        print(f"  GCM tedbir listesi alınamadı ({e}); önbellek kullanılacak.", flush=True)
         try:
-            return dt.datetime.strptime(x.strip(), "%d.%m.%Y").date()
-        except ValueError:
-            return None
+            old = json.loads(cache.read_text(encoding="utf-8"))
+            return old.get("data") or {}, old.get("at")
+        except (OSError, ValueError):
+            return {}, None
 
-    for line in path.read_text(encoding="utf-8").splitlines():
+
+def load_measures(cache_dir: Path, path: Path = MEASURES_FILE) -> tuple[dict[str, list[dict]], str | None]:
+    """Süresi dolmamış tedbirler: GCM tablosu + elle tutulan tedbirler.csv.
+    Döner: ({KOD: [{"type", "from", "to", "note"}]}, GCM güncelleme zamanı)."""
+    today = dt.date.today()
+    gcm, stamp = fetch_gcm_measures(cache_dir)
+    out: dict[str, list[dict]] = {}
+    for code, items in gcm.items():
+        for m in items:
+            if m["to"] and dt.date.fromisoformat(m["to"]) < today:
+                continue
+            out.setdefault(code, []).append(m)
+    d = _tr_date
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    for line in lines:
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         r = [x.strip() for x in line.split(";")] + [""] * 5
@@ -396,10 +453,16 @@ def load_measures(path: Path = MEASURES_FILE) -> dict[str, list[dict]]:
         e = d(end) if end else None
         if e and e < today:
             continue
-        out.setdefault(code.upper(), []).append(
-            {"type": kind, "from": d(start).isoformat() if d(start) else None, "to": e.isoformat() if e else None, "note": note or None})
-    print(f"Tedbirler: {sum(len(v) for v in out.values())} aktif tedbir, {len(out)} hisse.", flush=True)
-    return out
+        item = {"type": kind, "from": d(start).isoformat() if d(start) else None, "to": e.isoformat() if e else None, "note": note or None}
+        lst = out.setdefault(code.upper(), [])
+        same = next((m for m in lst if m["type"].lower() == kind.lower()), None)
+        if same:  # GCM'de de varsa elle yazılan açıklama/tarih öncelikli
+            same.update({k: v for k, v in item.items() if v})
+        else:
+            lst.append(item)
+    print(f"Tedbirler: {sum(len(v) for v in out.values())} aktif tedbir, {len(out)} hisse "
+          f"(GCM: {stamp or 'alınamadı'}).", flush=True)
+    return out, stamp
 
 
 def download_prices(symbols: list[str]) -> dict[str, pd.DataFrame]:
@@ -503,7 +566,7 @@ def main():
     cache_dir = Path(args.cache_dir)
     tickers, tier, bist_names, index_date = load_universe(cache_dir)
     markets = load_markets(cache_dir)
-    measures = load_measures()
+    measures, measures_at = load_measures(cache_dir)
     # Yakın İzleme Pazarı hisseleri endekslerde yer almaz; riskleri görünsün diye taramaya eklenir.
     yip = sorted(c for c, m in markets.items() if m == "YİP" and c not in tier)
     tickers = tickers + yip
@@ -556,6 +619,7 @@ def main():
         "updated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "lastDate": max(s["date"] for s in stocks),
         "indexDate": index_date,
+        "tedbirAt": measures_at,
         "sample": bool(args.sample),
         "source": "ÖRNEK VERİ" if args.sample else "Fiyat: Yahoo Finance (gecikmeli) · Mali tablolar: İş Yatırım",
         "index": index_summary,

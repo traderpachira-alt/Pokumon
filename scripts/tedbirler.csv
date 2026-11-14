@@ -1,4 +1,5 @@
-# Borsa İstanbul'un hisselere uyguladığı tedbirler. Arayüzde hisse kodunun yanında ⚠ olarak görünür.
+# EK tedbirler. Asıl liste her çalışmada GCM Yatırım'ın "Tedbir Kapsamındaki Pay Senetleri" sayfasından otomatik
+# çekilir. Buraya yalnızca orada olmayan tedbirleri ya da açıklama eklemek istediklerinizi yazın.
 # Biçim: kod;tedbir;baslangic;bitis;aciklama   (tarihler GG.AA.YYYY; bitiş boşsa süresiz kabul edilir)
 # Bitiş tarihi geçmiş satırlar otomatik olarak gösterilmez. # ile başlayan satırlar yok sayılır.
 # Tedbir türleri (örnek): Brüt takas · Açığa satış yasağı · Kredili işlem yasağı · Tek fiyat · Emir paketi · Sürekli işlem dışı

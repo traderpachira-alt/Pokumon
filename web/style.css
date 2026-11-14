@@ -272,3 +272,4 @@ textarea.code { width: 100%; font: 12px/1.4 var(--mono); border: 1px solid var(-
 .pop li span { display: block; font-weight: 600; color: var(--down); }
 .pop li small { color: var(--muted); }
 .btn.chk { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.pop .src { margin: 8px 0 0; font-size: 11px; color: var(--muted); }
