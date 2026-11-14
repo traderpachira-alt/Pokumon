@@ -197,3 +197,11 @@ table.grid { border-collapse: separate; border-spacing: 0; width: 100%; font-siz
   .px .price { font-size: 22px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* Endeks etiketleri: dar endeks = daha koyu vurgu */
+.ix { display: inline-block; min-width: 62px; text-align: center; padding: 1px 6px; border-radius: 5px; font: 600 11px var(--sans); white-space: nowrap; border: 1px solid transparent; }
+.ix0 { background: var(--accent); color: var(--accent-ink); }
+.ix1 { background: color-mix(in srgb, var(--accent) 55%, var(--surface)); color: var(--accent-ink); }
+.ix2 { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, var(--surface)); }
+.ix3 { background: var(--sunk); color: var(--muted); }
+.dhead .sub .ix { vertical-align: 1px; margin-right: 4px; }

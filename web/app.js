@@ -62,11 +62,16 @@ const FIELDS = {
   divYield:  { label: 'Temettü verimi',   f: fmt.pctPlain, pct: 1 },
 };
 const VIEWS = {
-  fiyat:  { label: 'Fiyat',  cols: ['last', 'chg1d', 'chg1w', 'chg1m', 'chg3m', 'chg1y', 'ytd', 'turnover', 'volRatio', 'mcap'] },
-  teknik: { label: 'Teknik', cols: ['last', 'chg1d', 'rsi', 'macdPct', '_trend', '_cross', 'vsSma50', 'vsSma200', 'distHi52', 'volRatio', 'volat', 'beta', 'rs3m'] },
-  temel:  { label: 'Temel',  cols: ['last', 'mcap', 'pe', 'pb', 'evEbitda', 'netMargin', 'roe', 'de', 'revGrowth', 'epsGrowth', 'divYield', '_sector'] },
+  fiyat:  { label: 'Fiyat',  cols: ['_idx', 'last', 'chg1d', 'chg1w', 'chg1m', 'chg3m', 'chg1y', 'ytd', 'turnover', 'volRatio', 'mcap'] },
+  teknik: { label: 'Teknik', cols: ['_idx', 'last', 'chg1d', 'rsi', 'macdPct', '_trend', '_cross', 'vsSma50', 'vsSma200', 'distHi52', 'volRatio', 'volat', 'beta', 'rs3m'] },
+  temel:  { label: 'Temel',  cols: ['_idx', 'last', 'mcap', 'pe', 'pb', 'evEbitda', 'netMargin', 'roe', 'de', 'revGrowth', 'epsGrowth', 'divYield', '_sector'] },
 };
+/* Endeks katmanı: her hisse yer aldığı en dar endeksle etiketlenir (BIST 30 ⊂ 50 ⊂ 100 ⊂ TÜM). */
+const TIER_RANK = { '30': 0, '50': 1, '100': 2, 'TÜM': 3 };
+const tierRank = s => TIER_RANK[s.idx] ?? 4;
+const tierChip = s => s.idx ? `<span class="ix ix${tierRank(s)}">${s.idx === 'TÜM' ? 'TÜM' : 'BIST ' + s.idx}</span>` : '—';
 const TEXTCOLS = {
+  _idx:    { label: 'Endeks', sortKey: tierRank, cell: tierChip, title: 'Hissenin yer aldığı en dar endeks' },
   _trend:  { label: 'Trend',  sortKey: s => ({ up: 2, flat: 1, down: 0 })[s.trend] ?? null,
              cell: s => s.trend ? `<span class="chip ${TREND[s.trend][1]}">${TREND[s.trend][0]}</span>` : '—' },
   _cross:  { label: 'Sinyal', sortKey: s => (s.cross === 'golden' ? 2 : 0) + (s.macdCross === 'up' ? 1 : s.macdCross === 'down' ? -1 : 0) + (s.cross === 'death' ? -2 : 0),
@@ -106,7 +111,7 @@ const OPS = { '>': (a, b) => a > b, '<': (a, b) => a < b };
    ============================================================ */
 const KEY = 'tahta:v1';
 const state = Object.assign({
-  view: 'fiyat', sort: { key: 'turnover', dir: -1 }, preset: 'all', sector: '', filters: [], watch: [],
+  view: 'fiyat', sort: { key: 'turnover', dir: -1 }, preset: 'all', sector: '', index: '', filters: [], watch: [],
   chart: { range: '6A', sma20: false, sma50: true, sma200: true, bb: false, rsi: true, macd: true },
 }, (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } })());
 const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* özel pencere vb. */ } };
@@ -169,6 +174,7 @@ function filtered() {
   return DATA.stocks.filter(s =>
     preset.test(s) &&
     (!state.sector || s.sector === state.sector) &&
+    (!state.index || tierRank(s) <= TIER_RANK[state.index]) &&
     state.filters.every(f => {
       const v = s[f.key], fd = FIELDS[f.key];
       if (f.value === '' || f.value == null) return true;
@@ -206,7 +212,7 @@ function tableHtml(rows, cols, { sortable = true, highlight = null } = {}) {
   const body = rows.map(s => {
     const starred = state.watch.includes(s.t);
     return `<tr data-t="${s.t}"${s.t === highlight ? ' style="font-weight:600"' : ''}>
-      <td class="tk"><button type="button" class="star" data-star="${s.t}" aria-pressed="${starred}" aria-label="${s.t} izleme listesi">★</button><span class="code">${s.t}</span><span class="nm">${esc(s.name || '')}</span></td>
+      <td class="tk"><button type="button" class="star" data-star="${s.t}" aria-pressed="${starred}" aria-label="${s.t} izleme listesi">★</button><span class="code" title="${esc(s.name || '')}">${s.t}</span></td>
       ${cols.map(k => cellHtml(s, k)).join('')}</tr>`;
   }).join('');
   return `<table class="grid"><thead>${head}</thead><tbody>${body}</tbody></table>`;
@@ -231,6 +237,8 @@ function renderScreener() {
       <div class="seg" role="group" aria-label="Sütun grubu">
         ${Object.entries(VIEWS).map(([id, v]) => `<button type="button" data-view="${id}" aria-pressed="${state.view === id}">${v.label}</button>`).join('')}
       </div>
+      <label class="sr" for="indexSel">Endeks</label>
+      <select id="indexSel" class="btn">${[['', 'Tüm hisseler'], ['30', 'BIST 30'], ['50', 'BIST 50'], ['100', 'BIST 100']].map(([v, l]) => `<option value="${v}"${v === state.index ? ' selected' : ''}>${l}</option>`).join('')}</select>
       <label class="sr" for="sector">Sektör</label>
       <select id="sector" class="btn"><option value="">Tüm sektörler</option>${sectors.map(s => `<option${s === state.sector ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select>
       <button type="button" class="btn" id="addFilter">+ Filtre ekle</button>
@@ -297,7 +305,7 @@ async function renderDetail(t) {
     <a class="back" href="#/">← Tarama</a>
     <div>
       <h1>${isIdx ? '' : `<button type="button" class="star" data-star="${t}" aria-pressed="${starred}" aria-label="İzleme listesi">★</button>`}${esc(t)}</h1>
-      <p class="sub">${esc(s.name || '')}${s.sector ? ' · ' + esc(s.sector) : ''}${s.industry ? ' · ' + esc(s.industry) : ''}</p>
+      <p class="sub">${isIdx ? '' : tierChip(s) + ' '}${esc(s.name || '')}${s.sector ? ' · ' + esc(s.sector) : ''}${s.industry ? ' · ' + esc(s.industry) : ''}</p>
     </div>
     <div class="px"><span class="price">${fmt.price(s.last)}${isIdx ? '' : ' ₺'}</span><span class="chg ${cls(s.chg1d)}">${fmt.pct(s.chg1d)}</span><span class="date">${fmt.date(s.date)} kapanış</span></div>
   </section>
@@ -487,7 +495,7 @@ view.addEventListener('click', e => {
   }
   if (d.view) { state.view = d.view; persist(); renderScreener(); return; }
   if (d.sort) {
-    state.sort = state.sort.key === d.sort ? { key: d.sort, dir: -state.sort.dir } : { key: d.sort, dir: d.sort === 't' || d.sort === '_sector' ? 1 : -1 };
+    state.sort = state.sort.key === d.sort ? { key: d.sort, dir: -state.sort.dir } : { key: d.sort, dir: ['t', '_sector', '_idx'].includes(d.sort) ? 1 : -1 };
     persist(); renderScreener(); return;
   }
   if (b.id === 'addFilter') { state.filters.push({ key: 'rsi', op: '<', value: '' }); persist(); renderScreener(); view.querySelector('.frow:last-child input')?.focus(); return; }
@@ -512,6 +520,7 @@ view.addEventListener('click', e => {
 
 view.addEventListener('change', e => {
   if (e.target.id === 'sector') { state.sector = e.target.value; persist(); renderScreener(); return; }
+  if (e.target.id === 'indexSel') { state.index = e.target.value; persist(); renderScreener(); return; }
   const row = e.target.closest('.frow');
   if (!row) return;
   const f = state.filters[+row.dataset.i];

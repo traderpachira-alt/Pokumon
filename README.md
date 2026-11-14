@@ -5,7 +5,8 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
 
 ## Ne var?
 
-- **Tarama:** ~90 likit BIST hissesi; Fiyat / Teknik / Temel sütun grupları, sıralama, sektör filtresi,
+- **Tarama:** BIST TÜM'deki tüm hisseler (~580); her hissenin BIST 30 / 50 / 100 / TÜM etiketi,
+  Fiyat / Teknik / Temel sütun grupları, sıralama, endeks ve sektör filtresi,
   kendi filtrelerin (ör. `RSI 14 < 30`, `F/K < 8`) ve hazır taramalar: aşırı satım/alım, güçlü trend,
   golden cross, MACD al, 52 hafta zirvesi, hacim patlaması, ucuz, kârlı büyüme. ★ ile izleme listesi.
 - **Hisse detayı:** mum grafik + hacim, SMA20/50/200, Bollinger, RSI ve MACD panelleri (1A–2Y);
@@ -21,7 +22,7 @@ birlikte GitHub Pages'te yayınlar. Veri **gecikmelidir** (yaklaşık 15 dk; son
 
 ```
 scripts/fetch_data.py   veri çekme + göstergeler -> site/data/summary.json, site/data/hist/<KOD>.json
-scripts/tickers.txt     taranan hisseler (düzenlenebilir)
+scripts/endeks_bilesenleri.csv  endeks listesinin yedeği (asıl liste her çalışmada borsaistanbul.com'dan çekilir)
 web/                    arayüz (HTML/CSS/JS, PWA, grafik kütüphanesi: TradingView Lightweight Charts)
 .github/workflows/update.yml   zamanlanmış güncelleme ve yayın
 ```
@@ -50,4 +51,6 @@ scripts/dev.sh --real   # gerçek veriyle
   arayüz bunları ⚠ ile işaretler ve "Ucuz" taramasından çıkarır.
 - Yahoo resmi bir API değildir; zaman zaman hız sınırı/kesinti olabilir. Hisselerin yarısından azı
   alınırsa yayın yapılmaz, önceki sürüm yayında kalır.
+- Temel veriler (F/K, PD/DD…) Yahoo'yu zorlamamak için her çalışmada en fazla 250 hisse için yenilenir;
+  ilk kurulumda tüm hisselerin temel verisinin dolması birkaç çalışma (birkaç saat) sürebilir.
 - Kişisel kullanım içindir, yatırım tavsiyesi değildir.

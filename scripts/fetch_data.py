@@ -25,6 +25,12 @@ import pandas as pd
 HERE = Path(__file__).resolve().parent
 INDEX = "XU100"
 
+# Borsa İstanbul'un resmi endeks bileşen dosyası (her çalışmada güncel hali çekilir).
+BIST_CSV_URL = "https://www.borsaistanbul.com/datum/hisse_endeks_ds.csv"
+BIST_CSV_FALLBACK = HERE / "endeks_bilesenleri.csv"  # indirme olmazsa kullanılan yedek
+# En dar endeksten genişe: bir hisse hangi endekste ilk görünüyorsa o etiketi alır.
+TIERS = [("XU030", "30"), ("XU050", "50"), ("XU100", "100"), ("XUTUM", "TÜM")]
+
 SECTORS_TR = {
     "Financial Services": "Finans",
     "Industrials": "Sanayi",
@@ -181,16 +187,58 @@ def metrics(df: pd.DataFrame, idx: pd.DataFrame | None) -> dict:
 # ----------------------------------------------------------------------------
 # Veri kaynakları
 # ----------------------------------------------------------------------------
-def read_tickers(path: Path) -> list[str]:
-    seen, out = set(), []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.split("#", 1)[0]
-        for t in line.split():
-            t = t.strip().upper()
-            if t and t not in seen:
-                seen.add(t)
-                out.append(t)
-    return out
+def _decode(raw: bytes) -> str:
+    for enc in ("utf-8-sig", "cp1254", "latin-1"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", "replace")
+
+
+def load_universe(cache_dir: Path):
+    """BIST TÜM hisselerini ve her birinin en dar endeksini (30/50/100/TÜM) döner."""
+    import urllib.request
+
+    cached = cache_dir / "endeks.csv"
+    text, source = None, None
+    try:
+        req = urllib.request.Request(BIST_CSV_URL, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            t = _decode(r.read())
+        if ";XUTUM;" in t:
+            text, source = t, "borsaistanbul.com"
+            cached.parent.mkdir(parents=True, exist_ok=True)
+            cached.write_text(text, encoding="utf-8")
+    except Exception as e:
+        print(f"  Endeks listesi indirilemedi ({e}); yedek kullanılacak.", flush=True)
+    if text is None:
+        for p in (cached, BIST_CSV_FALLBACK):
+            if p.exists():
+                text, source = p.read_text(encoding="utf-8"), f"yedek: {p.name}"
+                break
+    if text is None:
+        sys.exit("HATA: endeks bileşen listesi bulunamadı.")
+
+    members: dict[str, set[str]] = {code: set() for code, _ in TIERS}
+    names: dict[str, str] = {}
+    date = None
+    for line in text.splitlines():
+        r = line.split(";")
+        if len(r) < 6 or r[2] not in members:
+            continue
+        code = r[0].split(".")[0].strip().upper()
+        members[r[2]].add(code)
+        names.setdefault(code, r[1].strip())
+        date = r[5].strip()
+    tier = {}
+    for code, label in TIERS:
+        for t in members[code]:
+            tier.setdefault(t, label)
+    universe = sorted(tier)
+    print(f"Endeks listesi ({source}, {date}): " +
+          ", ".join(f"{c} {len(members[c])}" for c, _ in TIERS), flush=True)
+    return universe, tier, names, date
 
 
 def download_prices(symbols: list[str]) -> dict[str, pd.DataFrame]:
@@ -220,7 +268,9 @@ def download_prices(symbols: list[str]) -> dict[str, pd.DataFrame]:
     return out
 
 
-def load_fundamentals(symbols: list[str], cache_path: Path, max_age_h: float) -> dict[str, dict]:
+def load_fundamentals(symbols: list[str], cache_path: Path, max_age_h: float, max_per_run: int) -> dict[str, dict]:
+    """Temel verileri önbellekten okur; eskiyenleri (en eskiden başlayarak) en fazla max_per_run tane yeniler.
+    Böylece ~580 hisse Yahoo'yu zorlamadan gün içindeki çalışmalara yayılır."""
     import yfinance as yf
 
     try:
@@ -228,10 +278,9 @@ def load_fundamentals(symbols: list[str], cache_path: Path, max_age_h: float) ->
     except (OSError, ValueError):
         cache = {}
     now, fetched, failed = time.time(), 0, 0
-    for s in symbols:
-        old = cache.get(s)
-        if old and now - old.get("_ts", 0) < max_age_h * 3600:
-            continue
+    stale = [s for s in symbols if now - cache.get(s, {}).get("_ts", 0) >= max_age_h * 3600]
+    stale.sort(key=lambda s: cache.get(s, {}).get("_ts", 0))
+    for s in stale[:max_per_run] if max_per_run > 0 else stale:
         try:
             info = yf.Ticker(s + ".IS").info or {}
             rec = {k: info.get(src) for k, src in FUND_KEYS.items()}
@@ -247,7 +296,8 @@ def load_fundamentals(symbols: list[str], cache_path: Path, max_age_h: float) ->
         time.sleep(0.4)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     cache_path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
-    print(f"Temel veri: {fetched} güncellendi, {failed} başarısız, {len(cache)} önbellekte.", flush=True)
+    print(f"Temel veri: {fetched} güncellendi, {failed} başarısız, {len(cache)} önbellekte, "
+          f"{max(0, len(stale) - fetched - failed)} sonraki çalışmaya kaldı.", flush=True)
     return cache
 
 
@@ -325,15 +375,16 @@ def write_hist(path: Path, df: pd.DataFrame):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", default="site", help="çıktı klasörü (varsayılan: site)")
-    ap.add_argument("--tickers", default=str(HERE / "tickers.txt"))
-    ap.add_argument("--cache", default=".cache/fundamentals.json", help="temel veri önbelleği")
+    ap.add_argument("--cache-dir", default=".cache", help="önbellek klasörü (temel veri, endeks listesi)")
     ap.add_argument("--fund-max-age-hours", type=float, default=20)
+    ap.add_argument("--fund-max-per-run", type=int, default=250, help="bir çalışmada en fazla kaç hissenin temel verisi yenilensin")
     ap.add_argument("--no-fundamentals", action="store_true")
     ap.add_argument("--sample", action="store_true", help="internetsiz deneme için ÖRNEK veri üret")
     ap.add_argument("--limit", type=int, default=0, help="yalnızca ilk N hisse (deneme için)")
     args = ap.parse_args()
 
-    tickers = read_tickers(Path(args.tickers))
+    cache_dir = Path(args.cache_dir)
+    tickers, tier, bist_names, index_date = load_universe(cache_dir)
     if args.limit:
         tickers = tickers[: args.limit]
     out = Path(args.out)
@@ -347,7 +398,8 @@ def main():
         print(f"{len(tickers)} hisse + {INDEX} fiyatları indiriliyor…", flush=True)
         prices = download_prices(tickers + [INDEX])
         funds = {} if args.no_fundamentals else load_fundamentals(
-            [t for t in tickers if t in prices], Path(args.cache), args.fund_max_age_hours)
+            [t for t in tickers if t in prices], cache_dir / "fundamentals.json",
+            args.fund_max_age_hours, args.fund_max_per_run)
 
     ok = [t for t in tickers if t in prices]
     failed = [t for t in tickers if t not in prices]
@@ -361,7 +413,10 @@ def main():
     for t in ok:
         df = prices[t]
         write_hist(hist_dir / f"{t}.json", df)
-        stocks.append({"t": t, **fund_record(funds.get(t)), **metrics(df, idx)})
+        rec = {"t": t, "idx": tier.get(t), **fund_record(funds.get(t)), **metrics(df, idx)}
+        if not rec["name"]:
+            rec["name"] = bist_names.get(t)
+        stocks.append(rec)
     index_summary = None
     if idx is not None:
         write_hist(hist_dir / f"{INDEX}.json", idx)
@@ -370,6 +425,7 @@ def main():
     summary = {
         "updated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "lastDate": max(s["date"] for s in stocks),
+        "indexDate": index_date,
         "sample": bool(args.sample),
         "source": "ÖRNEK VERİ" if args.sample else "Yahoo Finance (gecikmeli)",
         "index": index_summary,
