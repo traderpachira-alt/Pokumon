@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""BIST verisini Yahoo Finance'ten çekip statik site için JSON dosyaları üretir.
+"""BIST verisini çekip statik site için JSON dosyaları üretir.
+
+Fiyatlar Yahoo Finance'ten, mali tablolar İş Yatırım'dan, endeks listesi Borsa İstanbul'dan gelir.
 
 Çıktı:
   <out>/data/summary.json      her hisse için özet (getiriler, teknik göstergeler, temel oranlar)
@@ -22,6 +24,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+import isyatirim
+
 HERE = Path(__file__).resolve().parent
 INDEX = "XU100"
 
@@ -31,41 +35,8 @@ BIST_CSV_FALLBACK = HERE / "endeks_bilesenleri.csv"  # indirme olmazsa kullanıl
 # En dar endeksten genişe: bir hisse hangi endekste ilk görünüyorsa o etiketi alır.
 TIERS = [("XU030", "30"), ("XU050", "50"), ("XU100", "100"), ("XUTUM", "TÜM")]
 
-SECTORS_TR = {
-    "Financial Services": "Finans",
-    "Industrials": "Sanayi",
-    "Basic Materials": "Temel Malzeme",
-    "Consumer Cyclical": "Döngüsel Tüketim",
-    "Consumer Defensive": "Temel Tüketim",
-    "Energy": "Enerji",
-    "Utilities": "Elektrik ve Altyapı",
-    "Technology": "Teknoloji",
-    "Communication Services": "İletişim",
-    "Real Estate": "Gayrimenkul",
-    "Healthcare": "Sağlık",
-}
-
-# summary.json alanı -> Yahoo "info" alanı
-FUND_KEYS = {
-    "name": "shortName",
-    "sector": "sector",
-    "industry": "industry",
-    "mcap": "marketCap",
-    "pe": "trailingPE",
-    "pb": "priceToBook",
-    "evEbitda": "enterpriseToEbitda",
-    "netMargin": "profitMargins",
-    "opMargin": "operatingMargins",
-    "roe": "returnOnEquity",
-    "roa": "returnOnAssets",
-    "de": "debtToEquity",
-    "currentRatio": "currentRatio",
-    "revGrowth": "revenueGrowth",
-    "epsGrowth": "earningsGrowth",
-    "divYield": "trailingAnnualDividendYield",
-    "finCur": "financialCurrency",
-    "cur": "currency",
-}
+SAMPLE_SECTORS = ["Bankacılık", "Elektrik Üretim", "Holding", "Perakende - Ticaret", "Demir, Çelik", "Savunma",
+                  "Gıda", "Otomotiv", "Gayrimenkul Y.O.", "Havayolları ve Hizm."]
 
 
 # ----------------------------------------------------------------------------
@@ -93,6 +64,90 @@ def wilder_rsi(c: np.ndarray, n: int = 14) -> np.ndarray:
         l = (l * (n - 1) + max(-x, 0.0)) / n
         out[i] = 100.0 if l == 0 else 100 - 100 / (1 + g / l)
     return out
+
+
+def rma(x: np.ndarray, n: int) -> np.ndarray:
+    """Wilder ortalaması: ilk n değerin ortalamasıyla başlar (x[0]'dan itibaren dolu olmalı)."""
+    out = np.full(len(x), np.nan)
+    if len(x) < n:
+        return out
+    out[n - 1] = x[:n].mean()
+    for i in range(n, len(x)):
+        out[i] = (out[i - 1] * (n - 1) + x[i]) / n
+    return out
+
+
+def true_range(h, lo, c):
+    tr = h - lo
+    tr[1:] = np.maximum.reduce([h[1:] - lo[1:], np.abs(h[1:] - c[:-1]), np.abs(lo[1:] - c[:-1])])
+    return tr
+
+
+def rolling_mid(h, lo, n):
+    return (pd.Series(h).rolling(n).max() + pd.Series(lo).rolling(n).min()).to_numpy() / 2
+
+
+def stoch_rsi(c, rsi_n=14, st_n=14, k=3, d=3):
+    r = pd.Series(wilder_rsi(c, rsi_n))
+    lo, hi = r.rolling(st_n).min(), r.rolling(st_n).max()
+    rng = hi - lo
+    st = ((r - lo) / rng.where(rng > 0) * 100).where(rng > 0, 50.0).where(r.notna() & lo.notna())
+    kk = st.rolling(k).mean()
+    return kk.to_numpy(), kk.rolling(d).mean().to_numpy()
+
+
+def fisher(h, lo, n=9):
+    """Ehlers Fisher dönüşümü (TradingView ile aynı)."""
+    hl2 = (h + lo) / 2
+    hi_, lo_ = pd.Series(hl2).rolling(n).max().to_numpy(), pd.Series(hl2).rolling(n).min().to_numpy()
+    fish = np.full(len(hl2), np.nan)
+    v_prev = f_prev = 0.0
+    for i in range(n - 1, len(hl2)):
+        v = 0.66 * ((hl2[i] - lo_[i]) / max(hi_[i] - lo_[i], 0.001) - 0.5) + 0.67 * v_prev
+        v = min(max(v, -0.999), 0.999)
+        f = 0.5 * math.log((1 + v) / max(1 - v, 0.001)) + 0.5 * f_prev
+        fish[i], v_prev, f_prev = f, v, f
+    trigger = np.r_[np.nan, fish[:-1]]
+    return fish, trigger
+
+
+def supertrend(h, lo, c, n=10, mult=3.0):
+    """Supertrend (TradingView ile aynı). Döner: (çizgi, trend: 1 / -1)."""
+    atr = rma(true_range(h, lo, c), n)
+    src = (h + lo) / 2
+    line = np.full(len(c), np.nan)
+    trend = np.full(len(c), np.nan)
+    up_p = dn_p = None
+    t = 1
+    for i in range(n - 1, len(c)):
+        up, dn = src[i] - mult * atr[i], src[i] + mult * atr[i]
+        if up_p is not None:
+            if c[i - 1] > up_p:
+                up = max(up, up_p)
+            if c[i - 1] < dn_p:
+                dn = min(dn, dn_p)
+            if t == -1 and c[i] > dn_p:
+                t = 1
+            elif t == 1 and c[i] < up_p:
+                t = -1
+        line[i], trend[i] = (up if t == 1 else dn), t
+        up_p, dn_p = up, dn
+    return line, trend
+
+
+def ichimoku(h, lo, conv=9, base=26, span_b=52, disp=26):
+    """Bulut bugünkü tarihe hizalı: span A/B, 26 bar önce hesaplanan değerlerdir."""
+    tenkan, kijun = rolling_mid(h, lo, conv), rolling_mid(h, lo, base)
+    a = (tenkan + kijun) / 2
+    b = rolling_mid(h, lo, span_b)
+    shift = lambda x: np.r_[np.full(disp, np.nan), x[:-disp]] if len(x) > disp else np.full(len(x), np.nan)  # noqa: E731
+    return tenkan, kijun, shift(a), shift(b)
+
+
+def vwma(c, v, n=20):
+    cv = pd.Series(c * v).rolling(n).sum()
+    vs = pd.Series(v).rolling(n).sum()
+    return (cv / vs.where(vs > 0)).to_numpy()
 
 
 def pct(a, b):
@@ -158,6 +213,32 @@ def metrics(df: pd.DataFrame, idx: pd.DataFrame | None) -> dict:
     hist = macd - ema(macd, 9)
     m["macdPct"] = hist[-1] / last if last else None
     m["macdCross"] = last_cross(hist, np.zeros_like(hist), 3)
+
+    k, d = stoch_rsi(c)
+    m["stochK"], m["stochD"] = k[-1], d[-1]
+    m["stochCross"] = last_cross(k, d, 3)
+    atr14 = rma(true_range(h, lo, c), 14)
+    m["atrPct"] = atr14[-1] / last if np.isfinite(atr14[-1]) else None
+    fi, tr = fisher(h, lo)
+    m["fisher"] = fi[-1]
+    m["fisherCross"] = last_cross(fi, tr, 2)
+    st_line, st_tr = supertrend(h, lo, c)
+    if np.isfinite(st_tr[-1]):
+        m["stTrend"] = "up" if st_tr[-1] > 0 else "down"
+        m["stDist"] = pct(last, st_line[-1])
+        flip = last_cross(st_tr, np.zeros_like(st_tr), 3)
+        m["stFlip"] = flip
+    else:
+        m["stTrend"] = m["stDist"] = m["stFlip"] = None
+    tenkan, kijun, sa, sb = ichimoku(h, lo)
+    if np.isfinite(sa[-1]) and np.isfinite(sb[-1]):
+        top, bot = max(sa[-1], sb[-1]), min(sa[-1], sb[-1])
+        m["ichi"] = "above" if last > top else "below" if last < bot else "in"
+    else:
+        m["ichi"] = None
+    m["tkCross"] = last_cross(tenkan, kijun, 3)
+    vw = vwma(c, v, 20)
+    m["vsVwma20"] = pct(last, vw[-1])
 
     hi52, lo52 = np.nanmax(h[-252:]), np.nanmin(lo[-252:])
     m["hi52"], m["lo52"] = hi52, lo52
@@ -268,45 +349,11 @@ def download_prices(symbols: list[str]) -> dict[str, pd.DataFrame]:
     return out
 
 
-def load_fundamentals(symbols: list[str], cache_path: Path, max_age_h: float, max_per_run: int) -> dict[str, dict]:
-    """Temel verileri önbellekten okur; eskiyenleri (en eskiden başlayarak) en fazla max_per_run tane yeniler.
-    Böylece ~580 hisse Yahoo'yu zorlamadan gün içindeki çalışmalara yayılır."""
-    import yfinance as yf
-
-    try:
-        cache = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        cache = {}
-    now, fetched, failed = time.time(), 0, 0
-    stale = [s for s in symbols if now - cache.get(s, {}).get("_ts", 0) >= max_age_h * 3600]
-    stale.sort(key=lambda s: cache.get(s, {}).get("_ts", 0))
-    for s in stale[:max_per_run] if max_per_run > 0 else stale:
-        try:
-            info = yf.Ticker(s + ".IS").info or {}
-            rec = {k: info.get(src) for k, src in FUND_KEYS.items()}
-            if any(rec[k] is not None for k in ("mcap", "pb", "sector")):
-                rec["_ts"] = now
-                cache[s] = rec
-                fetched += 1
-            else:
-                failed += 1
-        except Exception as e:  # ağ/Yahoo hataları: eski önbelleği koru
-            failed += 1
-            print(f"  temel veri alınamadı {s}: {e}", flush=True)
-        time.sleep(0.4)
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
-    print(f"Temel veri: {fetched} güncellendi, {failed} başarısız, {len(cache)} önbellekte, "
-          f"{max(0, len(stale) - fetched - failed)} sonraki çalışmaya kaldı.", flush=True)
-    return cache
-
-
 def make_sample(symbols: list[str]):
     """İnternet olmadan arayüzü denemek için rastgele ÖRNEK veri (gerçek değildir)."""
     rng = np.random.default_rng(7)
     dates = pd.bdate_range(end=pd.Timestamp.today().normalize(), periods=500)
     prices, funds = {}, {}
-    sectors = list(SECTORS_TR)
     for s in symbols:
         drift, vol = rng.normal(0.0008, 0.0008), rng.uniform(0.015, 0.035)
         c = rng.uniform(5, 400) * np.exp(np.cumsum(rng.normal(drift, vol, len(dates))))
@@ -317,14 +364,14 @@ def make_sample(symbols: list[str]):
         prices[s] = pd.DataFrame({"Open": o, "High": h, "Low": lo, "Close": c, "Volume": v}, index=dates)
         maybe = lambda x: None if rng.random() < 0.1 else x  # noqa: E731
         funds[s] = {
-            "name": f"{s} (örnek)", "sector": sectors[rng.integers(len(sectors))], "industry": None,
-            "mcap": float(rng.lognormal(23.5, 1.2)), "pe": maybe(float(rng.uniform(-5, 40))),
-            "pb": maybe(float(rng.uniform(0.4, 8))), "evEbitda": maybe(float(rng.uniform(2, 25))),
-            "netMargin": maybe(float(rng.uniform(-0.1, 0.35))), "opMargin": maybe(float(rng.uniform(-0.05, 0.4))),
-            "roe": maybe(float(rng.uniform(-0.1, 0.6))), "roa": maybe(float(rng.uniform(-0.05, 0.2))),
-            "de": maybe(float(rng.uniform(0, 250))), "currentRatio": maybe(float(rng.uniform(0.5, 3))),
-            "revGrowth": maybe(float(rng.uniform(-0.3, 1.2))), "epsGrowth": maybe(float(rng.uniform(-0.8, 2))),
-            "divYield": maybe(float(rng.uniform(0, 0.08))), "finCur": "TRY", "cur": "TRY",
+            "name": f"{s} (örnek)", "sector": SAMPLE_SECTORS[rng.integers(len(SAMPLE_SECTORS))],
+            "freeFloat": float(rng.uniform(0.1, 0.8)), "mcap": float(rng.lognormal(23.5, 1.2)),
+            "pe": maybe(float(rng.uniform(2, 40))), "pb": maybe(float(rng.uniform(0.4, 8))),
+            "evEbitda": maybe(float(rng.uniform(2, 25))), "netMargin": maybe(float(rng.uniform(-0.1, 0.35))),
+            "opMargin": maybe(float(rng.uniform(-0.05, 0.4))), "roe": maybe(float(rng.uniform(-0.1, 0.6))),
+            "de": maybe(float(rng.uniform(0, 2.5))), "revGrowth": maybe(float(rng.uniform(-0.3, 1.2))),
+            "epsGrowth": maybe(float(rng.uniform(-0.8, 2))), "divYield": maybe(float(rng.uniform(0, 0.08))),
+            "netDebt": None, "period": "2026/9", "finGroup": "XI_29",
         }
     return prices, funds
 
@@ -349,16 +396,6 @@ def clean(x):
     return x
 
 
-def fund_record(raw: dict | None) -> dict:
-    f = {k: (raw or {}).get(k) for k in FUND_KEYS}
-    if f["de"] is not None:
-        f["de"] = f["de"] / 100  # Yahoo yüzde olarak verir (88 -> 0,88x)
-    f["sectorEn"] = f["sector"]
-    f["sector"] = SECTORS_TR.get(f["sector"], f["sector"])
-    # Raporlama para birimi (ör. USD) ile fiyat para birimi (TRY) farklıysa Yahoo oranları güvenilmez.
-    f["fxWarn"] = bool(f["finCur"] and f["cur"] and f["finCur"] != f["cur"])
-    return f
-
 
 def write_hist(path: Path, df: pd.DataFrame):
     def r(a):
@@ -375,9 +412,9 @@ def write_hist(path: Path, df: pd.DataFrame):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", default="site", help="çıktı klasörü (varsayılan: site)")
-    ap.add_argument("--cache-dir", default=".cache", help="önbellek klasörü (temel veri, endeks listesi)")
-    ap.add_argument("--fund-max-age-hours", type=float, default=20)
-    ap.add_argument("--fund-max-per-run", type=int, default=250, help="bir çalışmada en fazla kaç hissenin temel verisi yenilensin")
+    ap.add_argument("--cache-dir", default=".cache", help="önbellek klasörü (mali tablolar, endeks listesi)")
+    ap.add_argument("--fund-max-age-days", type=float, default=3, help="mali tablolar kaç günde bir yenilensin")
+    ap.add_argument("--fund-max-per-run", type=int, default=150, help="bir çalışmada en fazla kaç şirketin mali tablosu çekilsin")
     ap.add_argument("--no-fundamentals", action="store_true")
     ap.add_argument("--sample", action="store_true", help="internetsiz deneme için ÖRNEK veri üret")
     ap.add_argument("--limit", type=int, default=0, help="yalnızca ilk N hisse (deneme için)")
@@ -392,14 +429,12 @@ def main():
     hist_dir.mkdir(parents=True, exist_ok=True)
 
     t0 = time.time()
+    is_summ, is_fin, sample_funds = {}, {}, {}
     if args.sample:
-        prices, funds = make_sample(tickers + [INDEX])
+        prices, sample_funds = make_sample(tickers + [INDEX])
     else:
         print(f"{len(tickers)} hisse + {INDEX} fiyatları indiriliyor…", flush=True)
         prices = download_prices(tickers + [INDEX])
-        funds = {} if args.no_fundamentals else load_fundamentals(
-            [t for t in tickers if t in prices], cache_dir / "fundamentals.json",
-            args.fund_max_age_hours, args.fund_max_per_run)
 
     ok = [t for t in tickers if t in prices]
     failed = [t for t in tickers if t not in prices]
@@ -408,15 +443,25 @@ def main():
         print("HATA: hisselerin yarısından azı alınabildi; eski yayın korunması için durduruluyor.", file=sys.stderr)
         sys.exit(1)
 
+    if not args.sample and not args.no_fundamentals:
+        rank = {label: i for i, (_, label) in enumerate(TIERS)}
+        by_priority = sorted(ok, key=lambda t: rank.get(tier.get(t), 9))  # BIST 30 → 50 → 100 → TÜM
+        is_summ, is_fin = isyatirim.load(by_priority, cache_dir / "isyatirim.json", args.fund_max_age_days,
+                                         args.fund_max_per_run, log=lambda s: print(s, flush=True))
+
     idx = prices.get(INDEX)
     stocks = []
     for t in ok:
         df = prices[t]
         write_hist(hist_dir / f"{t}.json", df)
-        rec = {"t": t, "idx": tier.get(t), **fund_record(funds.get(t)), **metrics(df, idx)}
-        if not rec["name"]:
-            rec["name"] = bist_names.get(t)
-        stocks.append(rec)
+        m = metrics(df, idx)
+        if args.sample:
+            f = sample_funds[t]
+        else:
+            s = is_summ.get(t) or {}
+            f = {"name": s.get("name") or bist_names.get(t), "sector": s.get("sector"),
+                 "freeFloat": s.get("freeFloat"), **isyatirim.ratios(m["last"], s, is_fin.get(t))}
+        stocks.append({"t": t, "idx": tier.get(t), **f, **m})
     index_summary = None
     if idx is not None:
         write_hist(hist_dir / f"{INDEX}.json", idx)
@@ -427,7 +472,7 @@ def main():
         "lastDate": max(s["date"] for s in stocks),
         "indexDate": index_date,
         "sample": bool(args.sample),
-        "source": "ÖRNEK VERİ" if args.sample else "Yahoo Finance (gecikmeli)",
+        "source": "ÖRNEK VERİ" if args.sample else "Fiyat: Yahoo Finance (gecikmeli) · Mali tablolar: İş Yatırım",
         "index": index_summary,
         "failed": failed,
         "stocks": stocks,

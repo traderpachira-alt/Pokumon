@@ -25,6 +25,11 @@
 <header class="top">
   <div class="top-in">
     <a class="brand" href="#/" aria-label="Tahta ana sayfa"><span class="mark" aria-hidden="true"></span>Tahta</a>
+    <nav class="nav" aria-label="Bölümler">
+      <a href="#/" data-nav="tarama">Tarama</a>
+      <a href="#/karsilastir" data-nav="karsilastir">Karşılaştır</a>
+      <a href="#/aktar" data-nav="aktar">Aktar</a>
+    </nav>
     <div class="idx" id="idx"></div>
     <form class="search" id="searchForm" role="search">
       <label class="sr" for="search">Hisse ara</label>
@@ -38,8 +43,9 @@
   <main id="view"><p class="empty">Yükleniyor…</p></main>
   <footer class="foot">
     <span id="stamp"></span>
-    <span>Kaynak: Yahoo Finance, gecikmeli. Yatırım tavsiyesi değildir.</span>
+    <span>Fiyat: Yahoo Finance (gecikmeli) · Mali tablolar: İş Yatırım · Endeksler: Borsa İstanbul. Yatırım tavsiyesi değildir.</span>
   </footer>
 </div>
+<div class="updatebar" id="updateBar" role="status" hidden>Yeni sürüm hazır. <button type="button" id="reloadBtn">Yenile</button></div>
 </body>
 </html>

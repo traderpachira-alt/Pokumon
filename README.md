@@ -5,27 +5,34 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
 
 ## Ne var?
 
-- **Tarama:** BIST TÜM'deki tüm hisseler (~580); her hissenin BIST 30 / 50 / 100 / TÜM etiketi,
-  Fiyat / Teknik / Temel sütun grupları, sıralama, endeks ve sektör filtresi,
-  kendi filtrelerin (ör. `RSI 14 < 30`, `F/K < 8`) ve hazır taramalar: aşırı satım/alım, güçlü trend,
-  golden cross, MACD al, 52 hafta zirvesi, hacim patlaması, ucuz, kârlı büyüme. ★ ile izleme listesi.
-- **Hisse detayı:** mum grafik + hacim, SMA20/50/200, Bollinger, RSI ve MACD panelleri (1A–2Y);
-  getiriler, 52 haftalık aralık, teknik özet ve sektör medyanıyla karşılaştırmalı temel oranlar;
-  aynı sektördeki hisseler.
-- Filtreler, izleme listesi ve grafik ayarları tarayıcıda saklanır.
+- **Tarama:** BIST TÜM'deki tüm hisseler (~580); her hissenin BIST 30 / 50 / 100 / TÜM etiketi.
+  Fiyat / Trend / Momentum / Temel sütun grupları, sıralama, endeks ve sektör filtresi,
+  kendi filtrelerin (ör. `RSI 14 < 30`, `F/K < 8`) ve hazır taramalar (aşırı satım/alım, güçlü trend,
+  golden cross, MACD / Supertrend / Fisher al, Stoch RSI dipte, bulut üstünde, 52H zirvesi, hacim patlaması,
+  ucuz, kârlı büyüme). ★ ile izleme listesi.
+- **Kayıtlı taramalar:** filtre + endeks + sektör + hazır tarama kombinasyonunu adıyla kaydet, tek dokunuşla aç.
+- **Hisse detayı:** mum grafik + hacim; katmanlar: SMA20/50/200, VWMA20, Bollinger, Ichimoku, Supertrend;
+  alt paneller: RSI, Stoch RSI, MACD, Fisher, ATR. Getiriler, 52 haftalık aralık, teknik özet,
+  sektör medyanıyla karşılaştırmalı temel oranlar, aynı sektördeki hisseler.
+- **Karşılaştır:** en fazla 5 hisse + BIST 100, dönem başı = 100; dönem getirisi, BIST 100'e göre fark,
+  en büyük düşüş ve volatilite tablosu.
+- **Aktar:** izleme listesi ve kayıtlı taramaları bir kod ya da bağlantıyla başka cihaza taşı.
+- **Güncelleme uyarısı:** yeni sürüm yayınlanınca uygulamada "Yeni sürüm hazır · Yenile" çıkar.
 
-## Nasıl çalışıyor?
+## Veri kaynakları
 
-Sunucu yok. GitHub Actions hafta içi seans boyunca saatte bir (TSİ 10:25–18:25)
-`scripts/fetch_data.py` ile Yahoo Finance'ten veriyi çeker, JSON'a çevirir ve `web/` arayüzüyle
-birlikte GitHub Pages'te yayınlar. Veri **gecikmelidir** (yaklaşık 15 dk; son çalışma günün kapanışını alır).
+| Veri | Kaynak | Sıklık |
+|---|---|---|
+| Fiyat, hacim (2 yıl, günlük) | Yahoo Finance (~15 dk gecikmeli) | seans boyunca saatte bir |
+| Endeks bileşenleri (BIST 30/50/100/TÜM) | Borsa İstanbul resmi dosyası | her çalışmada |
+| Sektör, halka açıklık, piyasa değeri | İş Yatırım özet tablosu | 6 saatte bir |
+| Bilanço, gelir tablosu, nakit akışı (TL) | İş Yatırım mali tablolar | şirket başına 3 günde bir |
 
-```
-scripts/fetch_data.py   veri çekme + göstergeler -> site/data/summary.json, site/data/hist/<KOD>.json
-scripts/endeks_bilesenleri.csv  endeks listesinin yedeği (asıl liste her çalışmada borsaistanbul.com'dan çekilir)
-web/                    arayüz (HTML/CSS/JS, PWA, grafik kütüphanesi: TradingView Lightweight Charts)
-.github/workflows/update.yml   zamanlanmış güncelleme ve yayın
-```
+Temel oranlar güncel fiyat ve son 12 ay (TTM) mali tablolarla **burada hesaplanır**:
+F/K = piyasa değeri / TTM net kâr (ana ortaklık), PD/DD = piyasa değeri / ana ortaklık özkaynakları,
+FD/FAVÖK = (piyasa değeri + net finansal borç) / TTM (faaliyet kârı + amortisman),
+büyüme oranları yılbaşından bu yana geçen yılın aynı dönemine göre. Banka ve sigorta şirketlerinde
+satışa dayalı oranlar (marj, FD/FAVÖK, borç/ÖK) hesaplanmaz.
 
 ## Kurulum (bir kez)
 
@@ -46,11 +53,12 @@ scripts/dev.sh --real   # gerçek veriyle
 
 ## Bilinen sınırlar
 
-- Yahoo'nun BIST **temel verileri** eksik ya da hatalı olabilir. Finansallarını USD/EUR ile raporlayan
-  şirketlerde (ör. THYAO) F/K, PD/DD ve FD/FAVÖK para birimleri karıştırılarak hesaplanabiliyor;
-  arayüz bunları ⚠ ile işaretler ve "Ucuz" taramasından çıkarır.
-- Yahoo resmi bir API değildir; zaman zaman hız sınırı/kesinti olabilir. Hisselerin yarısından azı
-  alınırsa yayın yapılmaz, önceki sürüm yayında kalır.
-- Temel veriler (F/K, PD/DD…) Yahoo'yu zorlamamak için her çalışmada en fazla 250 hisse için yenilenir;
-  ilk kurulumda tüm hisselerin temel verisinin dolması birkaç çalışma (birkaç saat) sürebilir.
+- Yahoo ve İş Yatırım resmi API değildir; sayfa yapıları değişirse veri çekme bozulabilir. Hisselerin
+  yarısından azının fiyatı alınırsa yayın yapılmaz, önceki sürüm yayında kalır. İş Yatırım'a ulaşılamazsa
+  son önbellekteki mali tablolar kullanılır.
+- Mali tablolar sunucuyu yormamak için çalışma başına en fazla 150 şirket için çekilir; ilk kurulumda
+  tümünün dolması birkaç çalışma (birkaç saat) sürer.
+- Enflasyon muhasebesi (TMS 29) nedeniyle TTM toplamları farklı satın alma gücündeki dönemleri birleştirir;
+  oranlar yaklaşık değerlerdir. Leasing/faktoring gibi bazı şirketler için mali tablo bulunmaz.
+- Ichimoku bulutu bugünkü tarihe hizalı çizilir (26 günlük ileri kısım gösterilmez).
 - Kişisel kullanım içindir, yatırım tavsiyesi değildir.
