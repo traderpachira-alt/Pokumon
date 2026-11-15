@@ -278,3 +278,5 @@ textarea.code { width: 100%; font: 12px/1.4 var(--mono); border: 1px solid var(-
 .divgrid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, .8fr); gap: 16px; align-items: start; }
 .tablewrap.flat { max-height: 330px; min-height: 0; border-radius: 8px; }
 @media (max-width: 960px) { .divgrid { grid-template-columns: 1fr; } }
+.upcoming { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0 0 12px; padding: 8px 10px; border-radius: 8px; background: var(--up-soft); font-size: 13px; }
+.upcoming b { margin-right: 4px; }

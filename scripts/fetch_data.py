@@ -503,6 +503,81 @@ def load_measures(cache_dir: Path, path: Path = MEASURES_FILE) -> tuple[dict[str
     return out, stamp
 
 
+# temettuhisseleri.com "Temettü Tarihleri" sayfası: açıklanmış ama henüz ödenmemiş temettüler.
+# Yalnızca olgusal bilgiler alınır (kod, tarih, net pay başı tutar); sitenin tahminleri kullanılmaz.
+UPCOMING_DIV_URL = "https://temettuhisseleri.com/temettutarihleri/"
+TR_MONTHS = {m: i for i, m in enumerate(
+    ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"], 1)}
+
+
+def fetch_upcoming_dividends(cache_dir: Path, max_age_h: float = 6) -> tuple[dict[str, list[dict]], str | None]:
+    """{KOD: [{"date": ISO | None, "net": TL}]}: tarihi belli yaklaşan ve tarihi açıklanmamış temettüler."""
+    import html as html_lib
+    import re
+    import urllib.request
+
+    cache = cache_dir / "temettu_yaklasan.json"
+    try:
+        old = json.loads(cache.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        old = {}
+    if old.get("data") is not None and time.time() - old.get("_ts", 0) < max_age_h * 3600:
+        return old["data"], old.get("at")
+
+    def rows_of(table):
+        return [[html_lib.unescape(re.sub(r"<[^>]+>", "", c)).strip()
+                 for c in re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", tr, re.S)]
+                for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", table, re.S)]
+
+    def money(x):
+        try:
+            return float(x.replace("₺", "").replace(",", ".").strip())
+        except ValueError:
+            return None
+
+    try:
+        req = urllib.request.Request(UPCOMING_DIV_URL, headers={"User-Agent": "Mozilla/5.0 (Tahta; personal BIST dashboard)"})
+        with urllib.request.urlopen(req, timeout=40) as r:
+            page = r.read().decode("utf-8", "replace")
+        tables = re.findall(r"<table.*?</table>", page, re.S)
+        today = dt.date.today()
+        out: dict[str, list[dict]] = {}
+        # 1) Takvim: ay başlığı satırı ("Kasım 2026 | Yüzde | Pay Başı") ardından "KOD | 17 Kasım | %… | 0.36₺"
+        cal = next((t for t in tables if re.search(r"(Ocak|Şubat|Mart|Nisan|Mayıs|Haziran|Temmuz|Ağustos|Eylül|Ekim|Kasım|Aralık) 20\d\d", t)), None)
+        if cal is None:
+            raise RuntimeError("temettü takvimi tablosu bulunamadı")
+        year = None
+        for r in rows_of(cal):
+            m = re.fullmatch(r"(\w+) (20\d\d)", r[0]) if r else None
+            if m and m.group(1) in TR_MONTHS:
+                year = int(m.group(2))
+                continue
+            if len(r) >= 4 and year and re.fullmatch(r"[A-Z0-9]{3,6}", r[0]):
+                dm = re.fullmatch(r"(\d{1,2}) (\w+)", r[1])
+                if not dm or dm.group(2) not in TR_MONTHS:
+                    continue
+                d = dt.date(year, TR_MONTHS[dm.group(2)], int(dm.group(1)))
+                if d >= today:
+                    out.setdefault(r[0], []).append({"date": d.isoformat(), "net": money(r[3])})
+        # 2) "Temettü kararı alınmış ama ödeme tarihi henüz açıklanmamış hisseler" (tarihsiz tablo)
+        marker = page.find("ödeme tarihi henüz açıklanmamış")
+        if marker > 0:
+            t2 = re.search(r"<table.*?</table>", page[marker:], re.S)
+            for r in rows_of(t2.group(0)) if t2 else []:
+                if len(r) >= 3 and re.fullmatch(r"[A-Z0-9]{3,6}", r[0]):
+                    out.setdefault(r[0], []).append({"date": None, "net": money(r[2])})
+        for v in out.values():
+            v.sort(key=lambda x: x["date"] or "9999")
+        stamp = dt.datetime.now(dt.timezone.utc).isoformat(timespec="minutes")
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"_ts": time.time(), "at": stamp, "data": out}, ensure_ascii=False), encoding="utf-8")
+        print(f"Yaklaşan temettüler: {sum(len(v) for v in out.values())} kayıt, {len(out)} hisse.", flush=True)
+        return out, stamp
+    except Exception as e:
+        print(f"  Yaklaşan temettüler alınamadı ({e}); önbellek kullanılacak.", flush=True)
+        return old.get("data") or {}, old.get("at")
+
+
 def download_prices(symbols: list[str]) -> dict[str, pd.DataFrame]:
     import yfinance as yf
 
@@ -621,6 +696,7 @@ def main():
     tickers, tier, bist_names, index_date = load_universe(cache_dir)
     markets = load_markets(cache_dir)
     measures, measures_at = load_measures(cache_dir)
+    upcoming, upcoming_at = ({}, None) if args.sample else fetch_upcoming_dividends(cache_dir)
     # Yakın İzleme Pazarı hisseleri endekslerde yer almaz; riskleri görünsün diye taramaya eklenir.
     yip = sorted(c for c, m in markets.items() if m == "YİP" and c not in tier)
     tickers = tickers + yip
@@ -658,6 +734,11 @@ def main():
         write_hist(hist_dir / f"{t}.json", df)
         m = metrics(df, idx)
         m.update(div_metrics(df))
+        up = upcoming.get(t)
+        if up:
+            first = up[0]
+            m.update({"divUpcoming": up, "nextDivDate": first["date"], "nextDivNet": first["net"],
+                      "nextDivYield": first["net"] / m["last"] if first["net"] and m["last"] else None})
         if args.sample:
             f = sample_funds[t]
         else:
@@ -675,6 +756,7 @@ def main():
         "lastDate": max(s["date"] for s in stocks),
         "indexDate": index_date,
         "tedbirAt": measures_at,
+        "divUpAt": upcoming_at,
         "sample": bool(args.sample),
         "source": "ÖRNEK VERİ" if args.sample else "Fiyat: Yahoo Finance (gecikmeli) · Mali tablolar: İş Yatırım",
         "index": index_summary,
