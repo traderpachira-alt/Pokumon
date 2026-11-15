@@ -1074,7 +1074,10 @@ window.addEventListener('hashchange', route);
 })();
 
 // Uygulama dosyaları güncellenince service worker haber verir; kullanıcı tek dokunuşla yeniler.
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  // Sayfa açıkken yeni service worker devralırsa (yeni sürüm yayınlandı) yenileme uyarısı göster
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) $('#updateBar').hidden = false; });
   navigator.serviceWorker.addEventListener('message', e => {
     if (e.data?.type === 'update') $('#updateBar').hidden = false;
   });

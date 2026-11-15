@@ -1,12 +1,15 @@
-// Uygulama kabuğunu önbelleğe alır; veriyi önce ağdan ister, ağ yoksa son kaydedilen veriyi gösterir.
-// Kabuk dosyaları (HTML/JS/CSS) sunucuda değişmişse açık sayfalara "güncelleme var" mesajı gönderir.
-const VERSION = 'tahta-v2';
+// Uygulama dosyaları ve veri: önce ağ (her açılışta en güncel sürüm), ağ yoksa ya da çok yavaşsa önbellek.
+// İstekler tarayıcının HTTP önbelleğini atlayıp sunucuya doğrulatılır (değişmediyse sunucu 304 döner, hızlıdır).
+// Grafik kütüphanesi sabit sürümlü olduğu için önbellekten verilir.
+const VERSION = 'tahta-v3';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'ind.js', 'manifest.webmanifest',
   'vendor/lightweight-charts.standalone.production.js', 'icons/icon-192.png'];
-const SHELL_TYPES = /text\/html|javascript|text\/css/;
+const NETWORK_TIMEOUT_MS = 5000;
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(VERSION)
+    .then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys()
@@ -14,36 +17,31 @@ self.addEventListener('activate', e => {
     .then(() => self.clients.claim()));
 });
 
-const notify = () => self.clients.matchAll({ type: 'window' })
-  .then(cs => cs.forEach(c => c.postMessage({ type: 'update' })));
+async function networkFirst(req) {
+  const cache = await caches.open(VERSION);
+  try {
+    const res = await Promise.race([
+      fetch(req.url, { cache: 'no-cache', credentials: 'same-origin' }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), NETWORK_TIMEOUT_MS)),
+    ]);
+    if (res.ok) cache.put(req, res.clone());
+    return res;
+  } catch {
+    const hit = await cache.match(req, { ignoreSearch: true })
+      || (req.mode === 'navigate' ? await cache.match('./') : null);
+    if (hit) return hit;
+    throw new Error('çevrimdışı ve önbellekte yok');
+  }
+}
 
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== location.origin) return;
-  if (url.pathname.includes('/data/')) {
-    // Veri: önce ağ, olmazsa önbellek
-    e.respondWith(fetch(req).then(res => {
-      if (res.ok) { const copy = res.clone(); caches.open(VERSION).then(c => c.put(req, copy)); }
-      return res;
-    }).catch(() => caches.match(req, { ignoreSearch: true })));
+  if (url.pathname.includes('/vendor/')) {
+    e.respondWith(caches.match(req).then(hit => hit || fetch(req)));
     return;
   }
-  // Kabuk: önbellekten hızlı aç, arkada güncelle; içerik değiştiyse sayfaya haber ver
-  e.respondWith(caches.match(req, { ignoreSearch: true }).then(hit => {
-    const net = fetch(req).then(async res => {
-      if (res.ok) {
-        if (hit && SHELL_TYPES.test(res.headers.get('content-type') || '')) {
-          const [a, b] = await Promise.all([hit.clone().text(), res.clone().text()]);
-          if (a !== b) notify();
-        }
-        const cache = await caches.open(VERSION);
-        await cache.put(req, res.clone());
-      }
-      return res;
-    }).catch(() => hit);
-    if (hit) { e.waitUntil(net); return hit; }
-    return net;
-  }));
+  e.respondWith(networkFirst(req));
 });
