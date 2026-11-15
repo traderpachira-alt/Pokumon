@@ -298,3 +298,30 @@ textarea.code { width: 100%; font: 12px/1.4 var(--mono); border: 1px solid var(-
 .ms-list input { accent-color: var(--accent); width: 16px; height: 16px; }
 .ms-foot { display: flex; justify-content: space-between; gap: 6px; border-top: 1px solid var(--grid); padding-top: 6px; }
 @media (max-width: 640px) { .ms-btn { max-width: 160px; } }
+
+/* Portföy */
+.dhead > .btn.primary, .dhead > .row { align-self: center; }
+.pfsum { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.pfsum .ret b { font-size: 16px; }
+.alloc .bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--sunk); }
+.alloc .bar i { display: block; height: 100%; }
+.legend2 { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; font-size: 13px; }
+.legend2 i, .pfcat h2 i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: 0; }
+.pfcat h2 { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; text-transform: none; letter-spacing: 0; font-size: 15px; color: var(--ink); }
+.pfcat h2 .muted { font-weight: 400; font-size: 13px; }
+.pfcat h2 .btn { margin-left: auto; }
+.pfcat .tablewrap.flat { max-height: none; }
+.grid td.act { white-space: nowrap; text-align: right; }
+.ic { border: 1px solid transparent; background: none; color: var(--muted); border-radius: 6px; padding: 2px 7px; font-size: 14px; }
+.ic:hover { border-color: var(--line); color: var(--ink); }
+.ic.armed { background: var(--down); color: #fff; font-size: 12px; font-weight: 600; }
+.grid tr.exit td { background: color-mix(in srgb, var(--down) 7%, var(--surface)); }
+.grid tr.exit td.tk { box-shadow: inset 3px 0 0 var(--down); }
+.grid td small { font-size: 11px; }
+.pfform { display: flex; flex-direction: column; gap: 10px; border-color: var(--accent); }
+.pfgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.pfgrid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+.pfgrid label.wide { grid-column: span 2; }
+.pfgrid input, .pfgrid select { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 7px 10px; font-size: 14px; color: var(--ink); min-width: 0; }
+@media (max-width: 960px) { .pfsum { grid-template-columns: repeat(3, minmax(0, 1fr)); } .pfgrid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 640px) { .pfsum { grid-template-columns: 1fr 1fr; } .pfgrid label.wide { grid-column: span 2; } .pfform .seg { flex-wrap: wrap; } }

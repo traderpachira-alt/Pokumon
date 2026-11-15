@@ -19,7 +19,11 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
   sektör medyanıyla karşılaştırmalı temel oranlar, aynı sektördeki hisseler.
 - **Karşılaştır:** en fazla 5 hisse + BIST 100, dönem başı = 100; dönem getirisi, BIST 100'e göre fark,
   en büyük düşüş ve volatilite tablosu.
-- **Aktar:** izleme listesi ve kayıtlı taramaları bir kod ya da bağlantıyla başka cihaza taşı.
+- **Portföy:** varlıkları kategoriyle ekle: *Temettü* (verim, maliyete göre verim, yıllık beklenen temettü,
+  sıradaki temettü), *Trend / Momentum* (Supertrend, trend, RSI; trend bozulunca "Çıkış sinyali"),
+  *Emtia / İtibari* (gram altın, gram gümüş, TL, dolar, euro). Toplam değer, kâr/zarar, günlük değişim,
+  kategori dağılımı. Veriler yalnızca cihazda saklanır.
+- **Aktar:** izleme listesi, kayıtlı taramalar ve portföyü bir kod ya da bağlantıyla başka cihaza taşı.
 - **Güncelleme uyarısı:** yeni sürüm yayınlanınca uygulamada "Yeni sürüm hazır · Yenile" çıkar.
 
 ## Veri kaynakları
@@ -28,6 +32,7 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
 |---|---|---|
 | Fiyat, hacim, temettü (5 yıl, günlük; bölünmelere göre düzeltilmiş) | Yahoo Finance (~15 dk gecikmeli) | seans boyunca saatte bir |
 | Pazar (Yıldız/Ana/Alt/YİP) | KAP Pazarlar sayfası | günde bir |
+| Dolar, euro, gram altın, gram gümüş (TL) | Yahoo Finance (USDTRY, EURTRY, ons altın/gümüş × kur) | seans boyunca saatte bir |
 | Tedbirler | GCM Yatırım tedbir listesi + `scripts/tedbirler.csv` | her çalışmada |
 | Açıklanmış (ödenmemiş) temettüler, net | temettuhisseleri.com temettü tarihleri sayfası | 6 saatte bir |
 | Endeks bileşenleri (BIST 30/50/100/TÜM) | Borsa İstanbul resmi dosyası | her çalışmada |

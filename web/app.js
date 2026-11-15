@@ -209,7 +209,7 @@ const OPS = { '>': (a, b) => a > b, '<': (a, b) => a < b };
 const KEY = 'tahta:v1';
 const state = Object.assign({
   view: 'fiyat', sort: { key: 'turnover', dir: -1 }, preset: 'all', sectors: [], index: '', markets: [], hideTedbir: false, filters: [], watch: [], saved: [],
-  compare: ['XU100'],
+  compare: ['XU100'], portfolio: [],
   chart: { range: '6A', sma20: false, sma50: true, sma200: true, bb: false, vwma: false, ichi: false, st: false,
            rsi: true, stoch: false, macd: true, fisher: false, atr: false },
 }, (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } })());
@@ -494,7 +494,7 @@ async function renderDetail(t) {
       <p class="sub">${isIdx ? '' : tierChip(s) + ' '}${esc(s.name || '')}${s.sector ? ' · ' + esc(s.sector) : ''}${s.industry ? ' · ' + esc(s.industry) : ''}</p>
     </div>
     <div class="px"><span class="price">${fmt.price(s.last)}${isIdx ? '' : ' ₺'}</span><span class="chg ${cls(s.chg1d)}">${fmt.pct(s.chg1d)}</span><span class="date">${fmt.date(s.date)} kapanış</span></div>
-    ${isIdx ? '' : `<button type="button" class="btn" data-cmpadd="${t}">${state.compare.includes(t) ? '⇆ Karşılaştırmada' : '⇆ Karşılaştır'}</button>`}
+    ${isIdx ? '' : `<div class="row"><button type="button" class="btn" data-cmpadd="${t}">${state.compare.includes(t) ? '⇆ Karşılaştırmada' : '⇆ Karşılaştır'}</button><button type="button" class="btn" data-pfaddsym="${t}">+ Portföye ekle${state.portfolio.some(p => p.sym === t) ? ' <span class="chip up">var</span>' : ''}</button></div>`}
   </section>
 
   <div class="chartbar">
@@ -825,12 +825,13 @@ function drawCompare(list, hists) {
    ============================================================ */
 const b64e = str => btoa(String.fromCharCode(...new TextEncoder().encode(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const b64d = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)));
-const exportCode = () => 'T1.' + b64e(JSON.stringify({ w: state.watch, s: state.saved, c: state.compare }));
+const exportCode = () => 'T1.' + b64e(JSON.stringify({ w: state.watch, s: state.saved, c: state.compare, p: state.portfolio }));
 function parseCode(code) {
   const m = String(code).trim().match(/(?:#\/aktar\/)?(T1\.[A-Za-z0-9_-]+)\s*$/);
   if (!m) throw new Error('Kod tanınmadı. "T1." ile başlayan kodun tamamını yapıştırın.');
   const d = JSON.parse(b64d(m[1].slice(3)));
-  return { w: Array.isArray(d.w) ? d.w.filter(x => typeof x === 'string') : [], s: Array.isArray(d.s) ? d.s.filter(x => x && x.name) : [], c: Array.isArray(d.c) ? d.c : [] };
+  return { w: Array.isArray(d.w) ? d.w.filter(x => typeof x === 'string') : [], s: Array.isArray(d.s) ? d.s.filter(x => x && x.name) : [], c: Array.isArray(d.c) ? d.c : [],
+    p: Array.isArray(d.p) ? d.p.filter(x => x && x.id && x.sym && PF_CATS[x.cat] && Number.isFinite(x.qty)) : [] };
 }
 
 function renderTransfer(incoming) {
@@ -842,15 +843,15 @@ function renderTransfer(incoming) {
   if (incoming) {
     try {
       const d = parseCode(incoming);
-      preview = `<p class="note-ok">Bu bağlantıda <b>${d.w.length}</b> izleme listesi hissesi ve <b>${d.s.length}</b> kayıtlı tarama var. Eklemek için aşağıdaki <b>İçe aktar</b> düğmesine basın.</p>`;
+      preview = `<p class="note-ok">Bu bağlantıda <b>${d.w.length}</b> izleme listesi hissesi, <b>${d.s.length}</b> kayıtlı tarama ve <b>${d.p.length}</b> portföy varlığı var. Eklemek için aşağıdaki <b>İçe aktar</b> düğmesine basın.</p>`;
     } catch (e) { preview = `<p class="note-fx">${esc(e.message)}</p>`; }
   }
   view.innerHTML = `
-  <section class="dhead"><div><h1>Aktar</h1><p class="sub">İzleme listenizi ve kayıtlı taramalarınızı başka bir cihaza taşıyın.</p></div></section>
+  <section class="dhead"><div><h1>Aktar</h1><p class="sub">İzleme listenizi, kayıtlı taramalarınızı ve portföyünüzü başka bir cihaza taşıyın.</p></div></section>
   <div class="panels two">
     <section class="panel">
       <h2>Bu cihazdan gönder</h2>
-      <p>İzleme listesi: <b>${state.watch.length}</b> hisse · Kayıtlı tarama: <b>${state.saved.length}</b></p>
+      <p>İzleme listesi: <b>${state.watch.length}</b> hisse · Kayıtlı tarama: <b>${state.saved.length}</b> · Portföy: <b>${state.portfolio.length}</b> varlık</p>
       <label class="muted" for="exportLink" style="font-size:12px">Bağlantı (diğer cihazda açınca kod hazır gelir)</label>
       <textarea id="exportLink" class="code" rows="3" readonly>${esc(link)}</textarea>
       <div class="row"><button type="button" class="btn" data-copy="exportLink">Bağlantıyı kopyala</button><button type="button" class="btn" data-copy="exportCode">Yalnızca kodu kopyala</button><span class="muted" id="copyMsg" role="status"></span></div>
@@ -865,6 +866,159 @@ function renderTransfer(incoming) {
       <p class="muted" style="font-size:12px">Mevcut listeniz silinmez; yeni hisseler eklenir, aynı adlı taramalar güncellenir.</p>
     </section>
   </div>`;
+}
+
+/* ============================================================
+   Portföy (yalnızca bu cihazda saklanır; Aktar ile taşınır)
+   ============================================================ */
+const PF_CATS = {
+  temettu: { label: 'Temettü', hint: 'Temettüsü için tutulan hisseler', color: '--c-sma50' },
+  trend:   { label: 'Trend / Momentum', hint: 'Trend sürdükçe tutulup momentum bitince satılacak hisseler', color: '--c-vwma' },
+  emtia:   { label: 'Emtia / İtibari', hint: 'Altın, gümüş, TL, dolar, euro', color: '--c-ichi' },
+};
+const ASSETS = {
+  XAU: { name: 'Altın', unit: 'gram', qtyLabel: 'Gram' },
+  XAG: { name: 'Gümüş', unit: 'gram', qtyLabel: 'Gram' },
+  TRY: { name: 'Türk lirası', unit: '₺', qtyLabel: 'Tutar (₺)' },
+  USD: { name: 'Dolar', unit: '$', qtyLabel: 'Tutar ($)' },
+  EUR: { name: 'Euro', unit: '€', qtyLabel: 'Tutar (€)' },
+};
+let pfForm = null; // açık form: {id?, cat, sym, qty, cost, date, note}
+let pfDelArmed = null;
+const pfId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const isAsset = p => p.cat === 'emtia';
+function pfQuote(p) {
+  if (isAsset(p)) { const a = DATA.assets?.[p.sym]; return a ? { last: a.last, chg1d: a.chg1d } : null; }
+  const s = BY.get(p.sym); return s ? { last: s.last, chg1d: s.chg1d, s } : null;
+}
+function pfRows() {
+  return state.portfolio.map(p => {
+    const q = pfQuote(p), value = q ? q.last * p.qty : null, costTot = p.cost * p.qty;
+    const pl = value != null ? value - costTot : null;
+    const day = q && ok(q.chg1d) ? value - value / (1 + q.chg1d) : null;
+    return { p, q, s: q?.s, value, costTot, pl, plPct: pl != null && costTot ? pl / costTot : null, day };
+  });
+}
+// Trend pozisyonunda çıkış uyarıları: güçlüler "Çıkış sinyali", zayıflar "Dikkat"
+function exitSignals(s) {
+  const strong = [], weak = [];
+  if (s.stTrend === 'down') strong.push(s.stFlip === 'down' ? 'Supertrend yeni döndü (sat)' : 'Supertrend sat');
+  if (s.macdCross === 'down') strong.push('MACD sat kesişimi');
+  if (s.trend === 'down') strong.push('Fiyat < SMA50 < SMA200');
+  if (s.fisherCross === 'down') weak.push('Fisher sat kesişimi');
+  if (s.vsSma20 < 0) weak.push('SMA20 altında');
+  if (s.rsi > 70) weak.push('RSI aşırı alım');
+  if (s.tkCross === 'down') weak.push('Tenkan/Kijun sat');
+  return { strong, weak };
+}
+
+function renderPortfolio() {
+  destroyCharts();
+  document.title = 'Portföy · Tahta';
+  const rows = pfRows();
+  const tot = rows.reduce((a, r) => ({ value: a.value + (r.value || 0), cost: a.cost + r.costTot, day: a.day + (r.day || 0) }), { value: 0, cost: 0, day: 0 });
+  const pl = tot.value - tot.cost;
+  const divYear = rows.filter(r => r.s && !isAsset(r.p)).reduce((a, r) => a + (r.s.divTtm || 0) * r.p.qty, 0);
+  const byCat = Object.fromEntries(Object.keys(PF_CATS).map(c => [c, rows.filter(r => r.p.cat === c)]));
+  const catVal = c => byCat[c].reduce((a, r) => a + (r.value || 0), 0);
+  const share = r => tot.value ? (r.value || 0) / tot.value : null;
+  const actions = r => `<td class="txt act"><button type="button" class="ic" data-pfedit="${r.p.id}" aria-label="Düzenle">✎</button><button type="button" class="ic${pfDelArmed === r.p.id ? ' armed' : ''}" data-pfdel="${r.p.id}" aria-label="Sil">${pfDelArmed === r.p.id ? 'Sil?' : '×'}</button></td>`;
+  const name = r => isAsset(r.p) ? `<span class="code">${ASSETS[r.p.sym]?.name || r.p.sym}</span>` : `<span class="code">${r.p.sym}</span>${r.s ? tedbirIcon(r.s) : ' <span class="muted">(veri yok)</span>'}`;
+  const note = r => r.p.note ? `<span class="nm">${esc(r.p.note)}</span>` : '';
+  const qtyFmt = q => Number.isInteger(q) ? F0.format(q) : F2.format(q);
+  const common = r => `<td>${qtyFmt(r.p.qty)}</td><td>${fmt.price(r.p.cost)}</td><td>${r.q ? fmt.price(r.q.last) : '—'}</td><td>${r.value != null ? fmt.big(r.value) : '—'}</td>
+    <td class="${cls(r.pl)}">${r.pl != null ? (r.pl > 0 ? '+' : '') + fmt.big(r.pl) : '—'}</td><td class="${cls(r.plPct)}">${fmt.pct(r.plPct)}</td><td>${fmt.pctPlain(share(r))}</td>`;
+  const commonHead = (q = 'Adet') => `<th>${q}</th><th title="Birim başına ortalama maliyet (₺)">Maliyet</th><th>Fiyat</th><th>Değer ₺</th><th>K/Z ₺</th><th>K/Z %</th><th title="Portföy içindeki payı">Pay</th>`;
+
+  const tables = {
+    temettu: list => `<table class="grid"><thead><tr><th class="tk">Hisse</th>${commonHead()}<th title="Son 12 ay temettü / güncel fiyat">12A verim</th><th title="Son 12 ay temettü / maliyet">Maliyete göre</th><th title="Son 12 ayın temettüsü × adet (brüt)">Yıllık temettü ₺</th><th>Sıradaki temettü</th><th></th></tr></thead><tbody>
+      ${list.map(r => `<tr data-t="${r.p.sym}"><td class="tk">${name(r)}${note(r)}</td>${common(r)}
+        <td>${fmt.pctPlain(r.s?.divYield)}</td><td>${r.s?.divTtm && r.p.cost ? fmt.pctPlain(r.s.divTtm / r.p.cost) : '—'}</td><td>${r.s?.divTtm ? fmt.big(r.s.divTtm * r.p.qty) : '—'}</td>
+        <td class="txt">${r.s?.divUpcoming?.length ? `${r.s.nextDivDate ? `<span class="chip up">${fmt.date(r.s.nextDivDate)}</span>` : '<span class="chip warn">Tarih bekleniyor</span>'} <span class="num">${fmt.big(r.s.nextDivNet * r.p.qty)} ₺ net</span>` : '<span class="muted">—</span>'}</td>${actions(r)}</tr>`).join('')}
+    </tbody></table>`,
+    trend: list => `<table class="grid"><thead><tr><th class="tk">Hisse</th>${commonHead()}<th>Durum</th><th>Supertrend</th><th>Trend</th><th>RSI</th><th title="Supertrend çizgisine uzaklık: olası stop seviyesi">ST stop</th><th></th></tr></thead><tbody>
+      ${list.map(r => {
+        const s = r.s, sig = s ? exitSignals(s) : { strong: [], weak: [] };
+        const status = !s ? '—' : sig.strong.length ? `<span class="chip down" title="${esc([...sig.strong, ...sig.weak].join(' · '))}">Çıkış sinyali</span> <small class="muted">${esc(sig.strong[0])}</small>`
+          : sig.weak.length ? `<span class="chip warn" title="${esc(sig.weak.join(' · '))}">Dikkat</span> <small class="muted">${esc(sig.weak[0])}</small>` : '<span class="chip up">Trend sürüyor</span>';
+        return `<tr data-t="${r.p.sym}" class="${sig.strong.length ? 'exit' : ''}"><td class="tk">${name(r)}${note(r)}</td>${common(r)}
+          <td class="txt">${status}</td><td class="txt">${s?.stTrend ? `<span class="chip ${ST[s.stTrend][1]}">${ST[s.stTrend][0]}</span>` : '—'}</td>
+          <td class="txt">${s?.trend ? `<span class="chip ${TREND[s.trend][1]}">${TREND[s.trend][0]}</span>` : '—'}</td><td>${fmt.num(s?.rsi)}</td>
+          <td title="Supertrend seviyesi">${s && ok(s.stDist) ? fmt.price(s.last / (1 + s.stDist)) : '—'}</td>${actions(r)}</tr>`;
+      }).join('')}
+    </tbody></table>`,
+    emtia: list => `<table class="grid"><thead><tr><th class="tk">Varlık</th>${commonHead('Miktar')}<th>Gün</th><th></th></tr></thead><tbody>
+      ${list.map(r => `<tr><td class="tk">${name(r)}${note(r)}</td>${common(r)}<td class="${cls(r.q?.chg1d)}">${fmt.pct(r.q?.chg1d)}</td>${actions(r)}</tr>`).join('')}
+    </tbody></table>`,
+  };
+
+  view.innerHTML = `
+  <section class="dhead">
+    <div><h1>Portföy</h1><p class="sub">Veriler yalnızca bu cihazda saklanır; başka cihaza <a href="#/aktar">Aktar</a> ile taşıyabilirsiniz.</p></div>
+    <button type="button" class="btn primary" data-pfadd="temettu">+ Varlık ekle</button>
+  </section>
+  ${pfForm ? pfFormHtml() : ''}
+  ${state.portfolio.length ? `
+  <div class="pfsum">
+    <div class="ret"><span>Toplam değer</span><b>${fmt.big(tot.value)} ₺</b></div>
+    <div class="ret"><span>Maliyet</span><b>${fmt.big(tot.cost)} ₺</b></div>
+    <div class="ret"><span>Kâr / zarar</span><b class="${cls(pl)}">${pl > 0 ? '+' : ''}${fmt.big(pl)} ₺ · ${fmt.pct(tot.cost ? pl / tot.cost : null)}</b></div>
+    <div class="ret"><span>Bugün</span><b class="${cls(tot.day)}">${tot.day > 0 ? '+' : ''}${fmt.big(tot.day)} ₺ · ${fmt.pct(tot.value - tot.day ? tot.day / (tot.value - tot.day) : null)}</b></div>
+    <div class="ret"><span title="Hisselerin son 12 ay temettüsü × adet (brüt)">Yıllık temettü</span><b>${fmt.big(divYear)} ₺ · ${fmt.pctPlain(tot.value ? divYear / tot.value : null)}</b></div>
+  </div>
+  <div class="alloc" aria-label="Kategori dağılımı">
+    <div class="bar">${Object.entries(PF_CATS).map(([c, d]) => { const v = catVal(c); return v > 0 ? `<i style="width:${v / tot.value * 100}%;background:var(${d.color})" title="${d.label}"></i>` : ''; }).join('')}</div>
+    <div class="legend2">${Object.entries(PF_CATS).map(([c, d]) => `<span><i style="background:var(${d.color})"></i>${d.label} <b class="num">${fmt.pctPlain(tot.value ? catVal(c) / tot.value : 0)}</b> <span class="muted num">${fmt.big(catVal(c))} ₺</span></span>`).join('')}</div>
+  </div>` : `<p class="empty">Portföyünüz boş. "+ Varlık ekle" ile başlayın ya da bir hisse sayfasındaki "+ Portföye ekle" düğmesini kullanın.</p>`}
+  ${Object.entries(PF_CATS).filter(([c]) => byCat[c].length).map(([c, d]) => `
+  <section class="panel pfcat">
+    <h2><i style="background:var(${d.color})"></i>${d.label} <span class="muted">· ${byCat[c].length} varlık · ${fmt.big(catVal(c))} ₺</span>
+      <button type="button" class="btn ghost" data-pfadd="${c}">+ Ekle</button></h2>
+    <div class="tablewrap flat">${tables[c](byCat[c].sort((a, b) => (b.value || 0) - (a.value || 0)))}</div>
+  </section>`).join('')}
+  <p class="muted" style="font-size:12px">Fiyatlar gecikmelidir. Altın ve gümüş gram fiyatı uluslararası ons fiyatı × dolar kurundan hesaplanır; Kapalıçarşı ve banka fiyatlarından farklı olabilir.</p>`;
+}
+
+function pfFormHtml() {
+  const f = pfForm, asset = f.cat === 'emtia';
+  return `<form class="panel pfform" id="pfForm">
+    <h2>${f.id ? 'Varlığı düzenle' : 'Varlık ekle'}</h2>
+    <div class="seg" role="radiogroup" aria-label="Kategori">${Object.entries(PF_CATS).map(([c, d]) => `<button type="button" data-pfcat="${c}" aria-pressed="${f.cat === c}" title="${esc(d.hint)}">${d.label}</button>`).join('')}</div>
+    <p class="muted" style="font-size:12px;margin:0">${esc(PF_CATS[f.cat].hint)}</p>
+    <div class="pfgrid">
+      ${asset
+        ? `<label>Varlık<select id="pfSym" class="btn">${Object.entries(ASSETS).map(([k, a]) => `<option value="${k}"${k === f.sym ? ' selected' : ''}>${a.name}</option>`).join('')}</select></label>`
+        : `<label>Hisse kodu<input id="pfSym" list="tickerList" value="${esc(f.sym || '')}" placeholder="ör. TUPRS" autocapitalize="characters" autocomplete="off" required></label>`}
+      <label>${asset ? (ASSETS[f.sym]?.qtyLabel || 'Miktar') : 'Adet'}<input id="pfQty" inputmode="decimal" value="${f.qty ?? ''}" required></label>
+      ${asset && f.sym === 'TRY' ? '' : `<label>Ortalama maliyet (₺ / ${asset ? ASSETS[f.sym]?.unit : 'hisse'})<input id="pfCost" inputmode="decimal" value="${f.cost ?? ''}" required></label>`}
+      <label>Alış tarihi <small class="muted">(isteğe bağlı)</small><input id="pfDate" type="date" value="${f.date || ''}"></label>
+      <label class="wide">Not <small class="muted">(isteğe bağlı)</small><input id="pfNote" maxlength="80" value="${esc(f.note || '')}"></label>
+    </div>
+    <div class="row"><button class="btn primary">${f.id ? 'Kaydet' : 'Ekle'}</button><button type="button" class="btn" data-pfcancel="1">İptal</button><span id="pfMsg" class="down" role="status"></span></div>
+  </form>`;
+}
+// "1.234,56" ve "1234,56" Türkçe; virgül yoksa nokta ondalık sayılır ("1234.56")
+// Türkçe sayı girişi: "1.234,56" / "1234,56" / "1.000" (binlik) / "4.95" (virgül yoksa ve noktadan sonra 3 hane değilse ondalık)
+const num = v => {
+  let t = String(v ?? '').trim().replace(/\s/g, '');
+  if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+  const x = parseFloat(t);
+  return Number.isFinite(x) ? x : NaN;
+};
+function pfReadForm() {
+  // Form yeniden çizilmeden önce yazılanları koru
+  if (!pfForm || !$('#pfForm')) return;
+  pfForm.sym = $('#pfSym')?.value.trim().toUpperCase() || pfForm.sym;
+  pfForm.qty = $('#pfQty')?.value ?? pfForm.qty;
+  pfForm.cost = $('#pfCost')?.value ?? pfForm.cost;
+  pfForm.date = $('#pfDate')?.value ?? pfForm.date;
+  pfForm.note = $('#pfNote')?.value ?? pfForm.note;
+}
+function pfOpen(cat, sym) {
+  pfForm = { cat, sym: sym || (cat === 'emtia' ? 'XAU' : ''), qty: '', cost: '', date: '', note: '' };
+  if (sym && cat !== 'emtia' && BY.get(sym)) pfForm.cost = String(BY.get(sym).last).replace('.', ',');
+  if (cat === 'emtia' && DATA.assets?.[pfForm.sym]) pfForm.cost = DATA.assets[pfForm.sym].last.toFixed(2).replace('.', ',');
 }
 
 /* ============================================================
@@ -921,9 +1075,11 @@ view.addEventListener('click', e => {
       const before = state.watch.length;
       for (const t of d2.w) if (!state.watch.includes(t)) state.watch.push(t);
       for (const sv of d2.s) { const i = state.saved.findIndex(x => x.name === sv.name); if (i >= 0) state.saved[i] = sv; else state.saved.push(sv); }
+      let pAdded = 0;
+      for (const pos of d2.p) { const i = state.portfolio.findIndex(x => x.id === pos.id); if (i >= 0) state.portfolio[i] = pos; else { state.portfolio.push(pos); pAdded++; } }
       persist();
       msg.className = 'up';
-      msg.textContent = `${state.watch.length - before} yeni hisse ve ${d2.s.length} tarama eklendi.`;
+      msg.textContent = `${state.watch.length - before} yeni izleme hissesi, ${d2.s.length} tarama ve ${pAdded} portföy varlığı eklendi (${d2.p.length - pAdded} güncellendi).`;
       if (location.hash.startsWith('#/aktar/')) history.replaceState(null, '', '#/aktar');
     } catch (e) {
       msg.className = 'down';
@@ -947,6 +1103,26 @@ view.addEventListener('click', e => {
   }
   if (d.msclear) { state[d.msclear] = []; persist(); b.closest('.ms').querySelectorAll('input[type=checkbox]').forEach(c => { c.checked = false; }); refreshResults(); return; }
   if (d.msclose) { closeMs(); return; }
+  // Portföy
+  if (d.pfaddsym) { pfOpen('temettu', d.pfaddsym); pfDelArmed = null; location.hash = '#/portfoy'; return; }
+  if (d.pfadd) { pfOpen(d.pfadd); pfDelArmed = null; renderPortfolio(); $('#pfSym')?.focus(); return; }
+  if (d.pfcat) {
+    pfReadForm();
+    const wasAsset = pfForm.cat === 'emtia', nowAsset = d.pfcat === 'emtia';
+    pfForm.cat = d.pfcat;
+    if (wasAsset !== nowAsset) { pfForm.sym = nowAsset ? 'XAU' : ''; pfForm.cost = nowAsset ? (DATA.assets?.XAU?.last.toFixed(2).replace('.', ',') || '') : ''; }
+    renderPortfolio(); return;
+  }
+  if (d.pfcancel) { pfForm = null; renderPortfolio(); return; }
+  if (d.pfedit) {
+    const p = state.portfolio.find(x => x.id === d.pfedit);
+    if (p) pfForm = { ...p, qty: String(p.qty).replace('.', ','), cost: String(p.cost).replace('.', ',') };
+    pfDelArmed = null; renderPortfolio(); window.scrollTo(0, 0); return;
+  }
+  if (d.pfdel) {
+    if (pfDelArmed !== d.pfdel) { pfDelArmed = d.pfdel; renderPortfolio(); return; } // ilk dokunuş: onay iste
+    state.portfolio = state.portfolio.filter(x => x.id !== d.pfdel); pfDelArmed = null; persist(); renderPortfolio(); return;
+  }
   if (b.id === 'saveBtn') { savingOpen = true; renderScreener(); $('#saveName')?.focus(); return; }
   if (d.cancelsave) { savingOpen = false; renderScreener(); return; }
   if (d.load != null) {
@@ -984,6 +1160,10 @@ view.addEventListener('change', e => {
     state[k] = e.target.checked ? [...new Set([...state[k], v])] : state[k].filter(x => x !== v);
     persist(); refreshResults(); return;
   }
+  if (e.target.id === 'pfSym' && pfForm?.cat === 'emtia') {
+    pfReadForm(); pfForm.cost = pfForm.sym === 'TRY' ? '' : (DATA.assets?.[pfForm.sym]?.last.toFixed(2).replace('.', ',') || '');
+    renderPortfolio(); return;
+  }
   if (e.target.id === 'hideTedbir') { state.hideTedbir = e.target.checked; persist(); renderScreener(); return; }
   const row = e.target.closest('.frow');
   if (!row) return;
@@ -1014,6 +1194,18 @@ view.addEventListener('submit', e => {
     if (!hit) { $('#cmpAdd').setCustomValidity('Bu kodla hisse bulunamadı'); $('#cmpAdd').reportValidity(); return; }
     if (!state.compare.includes(hit)) state.compare.unshift(hit);
     persist(); renderCompare(); return;
+  }
+  if (e.target.id === 'pfForm') {
+    e.preventDefault(); pfReadForm();
+    const f = pfForm, asset = f.cat === 'emtia', msg = $('#pfMsg');
+    const qty = num(f.qty), cost = asset && f.sym === 'TRY' ? 1 : num(f.cost);
+    if (!asset && !BY.has(f.sym)) { msg.textContent = `"${f.sym}" kodunda hisse bulunamadı.`; return; }
+    if (!(qty > 0)) { msg.textContent = 'Miktar sıfırdan büyük bir sayı olmalı.'; return; }
+    if (!(cost > 0)) { msg.textContent = 'Maliyet sıfırdan büyük bir sayı olmalı.'; return; }
+    const pos = { id: f.id || pfId(), cat: f.cat, sym: f.sym, qty, cost, date: f.date || null, note: (f.note || '').trim() || null };
+    const i = state.portfolio.findIndex(x => x.id === pos.id);
+    if (i >= 0) state.portfolio[i] = pos; else state.portfolio.push(pos);
+    pfForm = null; persist(); renderPortfolio(); return;
   }
   if (e.target.id !== 'saveForm') return;
   e.preventDefault();
@@ -1049,11 +1241,12 @@ function route() {
   const onScreener = !!view.querySelector('.toolbar');
   if (onScreener) lastScroll = view.querySelector('.tablewrap')?.scrollTop || 0;
   const m = h.match(/^#\/h\/([A-Z0-9]+)$/i);
-  const section = m ? 'hisse' : h.startsWith('#/karsilastir') ? 'karsilastir' : h.startsWith('#/aktar') ? 'aktar' : 'tarama';
+  const section = m ? 'hisse' : h.startsWith('#/karsilastir') ? 'karsilastir' : h.startsWith('#/aktar') ? 'aktar' : h.startsWith('#/portfoy') ? 'portfoy' : 'tarama';
   document.querySelectorAll('[data-nav]').forEach(a => a.toggleAttribute('aria-current', a.dataset.nav === section));
   if (m) renderDetail(m[1].toUpperCase());
   else if (section === 'karsilastir') renderCompare();
   else if (section === 'aktar') renderTransfer(h.startsWith('#/aktar/') ? h.slice(8) : null);
+  else if (section === 'portfoy') renderPortfolio();
   else {
     renderScreener();
     const tw = view.querySelector('.tablewrap');
@@ -1085,7 +1278,7 @@ if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.
     // Yeni bir service worker devreye girdiğinde de uyar
     reg.addEventListener('updatefound', () => {
       const w = reg.installing;
-      w?.addEventListener('statechange', () => { if (w.state === 'activated' && navigator.serviceWorker.controller) $('#updateBar').hidden = false; });
+      w?.addEventListener('statechange', () => { if (w.state === 'activated' && hadController) $('#updateBar').hidden = false; }); // ilk kurulumda gösterme
     });
   }).catch(() => {});
 }
