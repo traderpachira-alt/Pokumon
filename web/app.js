@@ -155,7 +155,7 @@ document.addEventListener('click', e => {
 }, true);
 // Açıldıktan hemen sonraki kaydırma (dokunma öncesi kaydırma, atalet) pencereyi kapatmasın
 addEventListener('scroll', () => { if (!pop.hidden && performance.now() - popAt > 400) hidePop(); }, true);
-addEventListener('keydown', e => { if (e.key === 'Escape') hidePop(); });
+addEventListener('keydown', e => { if (e.key === 'Escape') { hidePop(); closeMs?.(); } });
 
 function signalChips(s) {
   const out = [];
@@ -208,12 +208,19 @@ const OPS = { '>': (a, b) => a > b, '<': (a, b) => a < b };
    ============================================================ */
 const KEY = 'tahta:v1';
 const state = Object.assign({
-  view: 'fiyat', sort: { key: 'turnover', dir: -1 }, preset: 'all', sector: '', index: '', market: '', hideTedbir: false, filters: [], watch: [], saved: [],
+  view: 'fiyat', sort: { key: 'turnover', dir: -1 }, preset: 'all', sectors: [], index: '', markets: [], hideTedbir: false, filters: [], watch: [], saved: [],
   compare: ['XU100'],
   chart: { range: '6A', sma20: false, sma50: true, sma200: true, bb: false, vwma: false, ichi: false, st: false,
            rsi: true, stoch: false, macd: true, fisher: false, atr: false },
 }, (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } })());
 if (!VIEWS[state.view]) state.view = 'trend'; // eski sürümdeki 'teknik' görünümü
+// Eski tekli seçimleri (sector/market) çoklu seçime çevir
+const listOf = (o, key) => Array.isArray(o[key + 's']) ? o[key + 's'] : o[key] ? [o[key]] : [];
+if (state.sector) state.sectors = [state.sector];
+if (state.market) state.markets = [state.market];
+if (!Array.isArray(state.sectors)) state.sectors = [];
+if (!Array.isArray(state.markets)) state.markets = [];
+delete state.sector; delete state.market;
 const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* özel pencere vb. */ } };
 
 let DATA = null, BY = new Map(), MEDIANS = {};
@@ -273,9 +280,9 @@ function filtered() {
   const preset = PRESETS.find(p => p.id === state.preset) || PRESETS[0];
   return DATA.stocks.filter(s =>
     preset.test(s) &&
-    (!state.sector || s.sector === state.sector) &&
+    (!state.sectors.length || state.sectors.includes(s.sector)) &&
     (!state.index || tierRank(s) <= TIER_RANK[state.index]) &&
-    (!state.market || s.mkt === state.market) &&
+    (!state.markets.length || state.markets.includes(s.mkt)) &&
     (!state.hideTedbir || !s.tedbir?.length || state.preset === 'tedbir') &&
     state.filters.every(f => {
       const v = s[f.key], fd = FIELDS[f.key];
@@ -321,21 +328,62 @@ function tableHtml(rows, cols, { sortable = true, highlight = null } = {}) {
 
 /* Kayıtlı taramalar: hazır tarama + endeks + sektör + filtreler + görünüm + sıralama */
 let savingOpen = false;
-const screenOf = () => ({ preset: state.preset, index: state.index, market: state.market, sector: state.sector, view: state.view,
+const screenOf = () => ({ preset: state.preset, index: state.index, markets: [...state.markets], sectors: [...state.sectors], view: state.view,
   sort: { ...state.sort }, filters: state.filters.filter(f => f.value !== '').map(f => ({ ...f })) });
 const sameScreen = sv => {
   const c = screenOf();
-  return c.preset === sv.preset && c.index === sv.index && (c.market || '') === (sv.market || '') && c.sector === sv.sector && JSON.stringify(c.filters) === JSON.stringify(sv.filters);
+  const same = (a, b) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
+  return c.preset === sv.preset && c.index === sv.index && same(c.markets, listOf(sv, 'market')) && same(c.sectors, listOf(sv, 'sector')) && JSON.stringify(c.filters) === JSON.stringify(sv.filters);
 };
 function describeScreen(sv) {
   const p = [];
   if (sv.preset && sv.preset !== 'all') p.push(PRESETS.find(x => x.id === sv.preset)?.label);
   if (sv.index) p.push('BIST ' + sv.index);
-  if (sv.market) p.push(MKT_NAME[sv.market] || sv.market);
-  if (sv.sector) p.push(sv.sector);
+  const mk = listOf(sv, 'market'), sc = listOf(sv, 'sector');
+  if (mk.length) p.push(mk.map(m => MKT_NAME[m] || m).join(' + '));
+  if (sc.length) p.push(sc.length > 2 ? `${sc.length} sektör` : sc.join(' + '));
   for (const f of sv.filters || []) p.push(`${FIELDS[f.key]?.label} ${f.op} ${f.value}${FIELDS[f.key]?.pct ? '%' : ''}`);
   return p.join(' · ') || 'Tüm hisseler';
 }
+
+/* Çoklu seçim kutusu (pazar, sektör) */
+const MARKET_OPTS = [['Yıldız', 'Yıldız Pazar'], ['Ana', 'Ana Pazar'], ['Alt', 'Alt Pazar'], ['YİP', 'Yakın İzleme Pazarı']];
+let msOpen = null;
+function msLabel(key, allLabel, unit) {
+  const sel = state[key];
+  if (!sel.length) return allLabel;
+  if (sel.length === 1) return key === 'markets' ? (MARKET_OPTS.find(o => o[0] === sel[0])?.[1] || sel[0]) : sel[0];
+  return `${sel.length} ${unit}`;
+}
+function multiSelect(key, allLabel, unit, options, searchable) {
+  const sel = new Set(state[key]), open = msOpen === key;
+  return `<div class="ms${sel.size ? ' on' : ''}" data-ms="${key}" data-all="${esc(allLabel)}" data-unit="${unit}">
+    <button type="button" class="btn ms-btn" data-mstoggle="${key}" aria-haspopup="true" aria-expanded="${open}"><span class="ms-lbl">${esc(msLabel(key, allLabel, unit))}</span> ▾</button>
+    <div class="ms-panel"${open ? '' : ' hidden'}>
+      ${searchable ? `<input type="search" class="ms-q" placeholder="Ara…" aria-label="${unit} ara" autocomplete="off">` : ''}
+      <div class="ms-list">${options.map(([v, l, n]) => `<label><input type="checkbox" value="${esc(v)}"${sel.has(v) ? ' checked' : ''}> <span>${esc(l)}</span> <span class="n">${n}</span></label>`).join('')}</div>
+      <div class="ms-foot"><button type="button" class="btn" data-msclear="${key}">Temizle</button><button type="button" class="btn primary" data-msclose="1">Tamam</button></div>
+    </div>
+  </div>`;
+}
+// Tabloyu ve sayacı yenile (araç çubuğunu yeniden çizmeden; açık paneller ve odak korunur)
+function refreshResults() {
+  const rows = sorted(filtered());
+  view.querySelector('.tablewrap').innerHTML = rows.length ? tableHtml(rows, VIEWS[state.view].cols) : '<p class="empty">Bu koşullara uyan hisse yok.</p>';
+  view.querySelector('.count b').textContent = rows.length;
+  view.querySelectorAll('.ms').forEach(m => {
+    const k = m.dataset.ms;
+    m.querySelector('.ms-lbl').textContent = msLabel(k, m.dataset.all, m.dataset.unit);
+    m.classList.toggle('on', state[k].length > 0);
+  });
+}
+function closeMs() {
+  if (!msOpen) return;
+  msOpen = null;
+  view.querySelectorAll('.ms-panel').forEach(p => { p.hidden = true; });
+  view.querySelectorAll('[data-mstoggle]').forEach(b => b.setAttribute('aria-expanded', 'false'));
+}
+document.addEventListener('click', e => { if (msOpen && !e.target.closest?.('.ms')) closeMs(); });
 
 function renderScreener() {
   destroyCharts();
@@ -364,10 +412,8 @@ function renderScreener() {
       </div>
       <label class="sr" for="indexSel">Endeks</label>
       <select id="indexSel" class="btn">${[['', 'Tüm hisseler'], ['30', 'BIST 30'], ['50', 'BIST 50'], ['100', 'BIST 100']].map(([v, l]) => `<option value="${v}"${v === state.index ? ' selected' : ''}>${l}</option>`).join('')}</select>
-      <label class="sr" for="marketSel">Pazar</label>
-      <select id="marketSel" class="btn">${[['', 'Tüm pazarlar'], ['Yıldız', 'Yıldız Pazar'], ['Ana', 'Ana Pazar'], ['Alt', 'Alt Pazar'], ['YİP', 'Yakın İzleme Pazarı']].map(([v, l]) => `<option value="${v}"${v === state.market ? ' selected' : ''}>${l}</option>`).join('')}</select>
-      <label class="sr" for="sector">Sektör</label>
-      <select id="sector" class="btn"><option value="">Tüm sektörler</option>${sectors.map(s => `<option${s === state.sector ? ' selected' : ''}>${esc(s)}</option>`).join('')}</select>
+      ${multiSelect('markets', 'Tüm pazarlar', 'pazar', MARKET_OPTS.map(([v, l]) => [v, l, DATA.stocks.filter(x => x.mkt === v).length]), false)}
+      ${multiSelect('sectors', 'Tüm sektörler', 'sektör', sectors.map(v => [v, v, DATA.stocks.filter(x => x.sector === v).length]), true)}
       <label class="btn chk"><input type="checkbox" id="hideTedbir"${state.hideTedbir ? ' checked' : ''}> Tedbirlileri gizle</label>
       <button type="button" class="btn" id="addFilter">+ Filtre ekle</button>
       <span class="count"><b class="num">${rows.length}</b> / ${DATA.stocks.length} hisse${preset?.hint ? ` · ${esc(preset.hint)}` : ''}</span>
@@ -885,11 +931,27 @@ view.addEventListener('click', e => {
     }
     return;
   }
+  if (d.mstoggle) {
+    const was = msOpen === d.mstoggle;
+    closeMs();
+    if (!was) {
+      msOpen = d.mstoggle;
+      const m = b.closest('.ms'), panel = m.querySelector('.ms-panel');
+      panel.style.left = ''; panel.hidden = false; b.setAttribute('aria-expanded', 'true');
+      // Ekrana sığmıyorsa sola kaydır
+      const r = panel.getBoundingClientRect(), over = r.right - (document.documentElement.clientWidth - 8);
+      if (over > 0) panel.style.left = `${-Math.min(over, r.left - 8)}px`;
+      m.querySelector('.ms-q')?.focus();
+    }
+    return;
+  }
+  if (d.msclear) { state[d.msclear] = []; persist(); b.closest('.ms').querySelectorAll('input[type=checkbox]').forEach(c => { c.checked = false; }); refreshResults(); return; }
+  if (d.msclose) { closeMs(); return; }
   if (b.id === 'saveBtn') { savingOpen = true; renderScreener(); $('#saveName')?.focus(); return; }
   if (d.cancelsave) { savingOpen = false; renderScreener(); return; }
   if (d.load != null) {
     const sv = state.saved[+d.load];
-    if (sv) Object.assign(state, { preset: sv.preset, index: sv.index, market: sv.market || '', sector: sv.sector, view: VIEWS[sv.view] ? sv.view : state.view,
+    if (sv) Object.assign(state, { preset: sv.preset, index: sv.index, markets: listOf(sv, 'market'), sectors: listOf(sv, 'sector'), view: VIEWS[sv.view] ? sv.view : state.view,
       sort: { ...sv.sort }, filters: sv.filters.map(f => ({ ...f })) });
     persist(); renderScreener(); return;
   }
@@ -915,10 +977,14 @@ view.addEventListener('click', e => {
 });
 
 view.addEventListener('change', e => {
-  if (e.target.id === 'sector') { state.sector = e.target.value; persist(); renderScreener(); return; }
   if (e.target.id === 'indexSel') { state.index = e.target.value; persist(); renderScreener(); return; }
+  const ms = e.target.closest('.ms');
+  if (ms && e.target.type === 'checkbox') {
+    const k = ms.dataset.ms, v = e.target.value;
+    state[k] = e.target.checked ? [...new Set([...state[k], v])] : state[k].filter(x => x !== v);
+    persist(); refreshResults(); return;
+  }
   if (e.target.id === 'hideTedbir') { state.hideTedbir = e.target.checked; persist(); renderScreener(); return; }
-  if (e.target.id === 'marketSel') { state.market = e.target.value; persist(); renderScreener(); return; }
   const row = e.target.closest('.frow');
   if (!row) return;
   const f = state.filters[+row.dataset.i];
@@ -927,6 +993,11 @@ view.addEventListener('change', e => {
 });
 // Değer yazarken anında süz (odak kaybolmasın diye yalnızca tablo ve sayaç yenilenir)
 view.addEventListener('input', e => {
+  if (e.target.classList.contains('ms-q')) {
+    const q = e.target.value.trim().toLocaleLowerCase('tr');
+    e.target.closest('.ms').querySelectorAll('.ms-list label').forEach(l => { l.hidden = q && !l.textContent.toLocaleLowerCase('tr').includes(q); });
+    return;
+  }
   if (e.target.dataset.f !== 'value') return;
   state.filters[+e.target.closest('.frow').dataset.i].value = e.target.value;
   persist();
