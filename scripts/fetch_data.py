@@ -621,6 +621,25 @@ def fetch_assets() -> dict[str, dict]:
         return {"TRY": {"last": 1.0, "chg1d": 0.0}}
 
 
+def write_stable_history(out_dir: Path):
+    """Portföyde USDT/USDC ile yapılan kripto işlemlerinin TL karşılığı için son 2 yılın günlük kuru (TL / 1 USDT, USDC)."""
+    import yfinance as yf
+
+    try:
+        d = yf.download(["USDT-USD", "USDC-USD", "USDTRY=X"], period="2y", interval="1d", auto_adjust=False,
+                        group_by="ticker", progress=False, threads=True)
+        usd = d["USDTRY=X"]["Close"].dropna()
+        out = {}
+        for k in ("USDT", "USDC"):
+            c = d[f"{k}-USD"]["Close"].dropna()
+            t = (c * usd.reindex(c.index).ffill()).dropna()
+            out[k] = {"d": [i.strftime("%Y-%m-%d") for i in t.index], "c": [round(float(x), 4) for x in t]}
+        (out_dir / "data" / "fx.json").write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
+        print(f"Stablecoin TL kur geçmişi: {len(out['USDT']['d'])} gün.", flush=True)
+    except Exception as e:
+        print(f"  Stablecoin kur geçmişi alınamadı ({e}).", flush=True)
+
+
 def download_prices(symbols: list[str]) -> dict[str, pd.DataFrame]:
     import yfinance as yf
 
@@ -807,6 +826,8 @@ def main():
         "failed": failed,
         "stocks": stocks,
     }
+    if not args.sample:
+        write_stable_history(out)
     (out / "data" / "summary.json").write_text(
         json.dumps(clean(summary), ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"Tamam: {out / 'data'} ({time.time() - t0:.0f} sn)", flush=True)

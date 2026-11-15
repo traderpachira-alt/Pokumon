@@ -26,7 +26,8 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
   sonunda eldeki adetle) tespit edilir, net tutar ve hedef (TL bakiye / portföy dışı) kullanıcıya onaylatılır.
   Kategoriler: *Temettü* (verim, maliyete göre verim, yıllık beklenen temettü,
   sıradaki temettü), *Trend / Momentum* (Supertrend, trend, RSI; trend bozulunca "Çıkış sinyali"),
-  *Emtia / İtibari* (gram altın, gram gümüş, TL, dolar, euro), *Kripto* (BTC, ETH, SOL, BNB, USDT, USDC). Toplam değer, kâr/zarar, günlük değişim,
+  *Emtia / İtibari* (gram altın, gram gümüş, TL, dolar, euro), *Kripto* (BTC, ETH, SOL, BNB, USDT, USDC): USDT/USDC TL ile alınır; BTC/ETH/SOL/BNB USDT ya da
+  USDC bakiyesiyle (fiyat $ cinsinden), TL karşılığı işlem günü kuruyla hesaplanır. Toplam değer, kâr/zarar, günlük değişim,
   kategori dağılımı. Veriler yalnızca cihazda saklanır.
 - **Bulut senkronizasyonu (isteğe bağlı):** portföy, izleme listesi ve kayıtlı taramalar kullanıcının kendi özel
   GitHub Gist'inde tutulur; erişim anahtarı (yalnızca `gist` yetkisi) sadece cihazın tarayıcısında saklanır.
