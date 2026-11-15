@@ -22,7 +22,8 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
 - **Portföy:** alım/satım işlemleriyle yönetilir (tarih, adet, fiyat, komisyon); ortalama maliyet ve
   gerçekleşen K/Z ortalama maliyet yöntemiyle hesaplanır, tamamı satılanlar "Kapanan pozisyonlar"a geçer.
   TL nakit akışı: alımlar TL bakiyeden ya da dışarıdan, satış gelirleri TL bakiyeye ya da portföy dışına;
-  para yatır/çek; net yatırılan ve toplam getiri.
+  para yatır/çek; net yatırılan ve toplam getiri. Hak kullanımı gerçekleşen temettüler (hak kullanımından önceki gün
+  sonunda eldeki adetle) tespit edilir, net tutar ve hedef (TL bakiye / portföy dışı) kullanıcıya onaylatılır.
   Kategoriler: *Temettü* (verim, maliyete göre verim, yıllık beklenen temettü,
   sıradaki temettü), *Trend / Momentum* (Supertrend, trend, RSI; trend bozulunca "Çıkış sinyali"),
   *Emtia / İtibari* (gram altın, gram gümüş, TL, dolar, euro). Toplam değer, kâr/zarar, günlük değişim,

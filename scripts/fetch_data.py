@@ -152,7 +152,7 @@ def vwma(c, v, n=20):
 
 def div_metrics(df: pd.DataFrame) -> dict:
     """Temettü ölçütleri (Yahoo temettü geçmişi, bölünmelere göre düzeltilmiş, hisse başı TL)."""
-    keys = ("divTtm", "divYield", "lastDivDate", "lastDivAmt", "divFreq", "divYears5", "divStreak", "divGrowth", "divAvg5")
+    keys = ("divTtm", "divYield", "lastDivDate", "lastDivAmt", "divFreq", "divYears5", "divStreak", "divGrowth", "divAvg5", "divRecent")
     out = dict.fromkeys(keys)
     if "Dividends" not in df.columns:
         return out
@@ -170,6 +170,9 @@ def div_metrics(df: pd.DataFrame) -> dict:
     out["divYield"] = out["divTtm"] / last_px if last_px else None
     out["divFreq"] = int(len(ttm))
     out["lastDivDate"] = d.index[-1].strftime("%Y-%m-%d")
+    # Son ~400 günün temettüleri (portföyde hak sahipliği tespiti için): [[hak kullanım tarihi, hisse başı brüt TL]]
+    recent = d[d.index > end - pd.DateOffset(days=400)]
+    out["divRecent"] = [[i.strftime("%Y-%m-%d"), round(float(x), 4)] for i, x in recent.items()]
     out["lastDivAmt"] = float(d.iloc[-1])
     out["divGrowth"] = (out["divTtm"] / float(prev.sum()) - 1) if prev.sum() > 0 else None
     years = set(d.index.year)

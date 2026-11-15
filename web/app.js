@@ -977,6 +977,7 @@ function applyTx(p, tx, flow) {
 function removeTx(p, tid) {
   const t = p.txs.find(x => x.id === tid);
   if (!t) return null;
+  if (t.kind === 'div') { const sp = state.portfolio.find(x => x.id === t.src); return sp ? undoDiv(sp, t.divDate) : null; }
   if (t.src) { const sp = state.portfolio.find(x => x.id === t.src); return `Bu kayıt ${sp ? assetName(sp) : 'başka bir'} işleminden otomatik oluştu; o işlemi silin.`; }
   const plan = [[p, p.txs.filter(x => x.id !== tid)]];
   const cash = CASH();
@@ -1003,6 +1004,53 @@ function removePosition(pid) {
   state.portfolio = state.portfolio.filter(x => x.id !== pid);
   return null;
 }
+/* --- Temettü tespiti ---
+   Yahoo'daki temettü kaydı hak kullanım günü gerçekleştikten sonra oluşur: şirketin dağıtımı yaptığı kesindir.
+   Hak sahipliği: hak kullanım gününden ÖNCEKİ işlem günü sonunda elde olan adet (işlem tarihi < hak kullanım tarihi).
+   Hesaba geçen net tutar (stopaj) ve ödemenin alındığı kullanıcıya onaylatılır. p.divs[tarih] = {status, net, flow, txId} */
+const DIV_TAX = 0.15; // varsayılan stopaj (GYO vb. için %0 olabilir; kullanıcı düzeltir)
+const createdOn = id => { const n = parseInt(String(id).slice(0, -5), 36); return Number.isFinite(n) && n > 1.5e12 ? new Date(n).toISOString().slice(0, 10) : null; };
+function heldBefore(p, date) {
+  const txs = p.txs.filter(t => (t.date || createdOn(t.id) || '9999') < date);
+  return pfCalc({ ...p, txs }).qty;
+}
+function pendingDivs() {
+  const out = [], today = todayIso();
+  for (const p of state.portfolio) {
+    if (isAsset(p)) continue;
+    const s = BY.get(p.sym);
+    for (const [date, per] of s?.divRecent || []) {
+      if (date > today || p.divs?.[date]) continue;
+      const qty = heldBefore(p, date);
+      if (qty > 0) out.push({ p, date, per, qty, gross: qty * per, net: qty * per * (1 - DIV_TAX) });
+    }
+  }
+  return out.sort((a, b) => a.date < b.date ? -1 : 1);
+}
+const divReceived = () => state.portfolio.reduce((a, p) => a + Object.values(p.divs || {}).filter(d => d.status === 'received').reduce((x, d) => x + d.net, 0), 0);
+const divReceivedExt = () => state.portfolio.reduce((a, p) => a + Object.values(p.divs || {}).filter(d => d.status === 'received' && d.flow === 'ext').reduce((x, d) => x + d.net, 0), 0);
+function confirmDiv(p, date, net, flow) {
+  const rec = { status: 'received', net, flow };
+  if (flow === 'cash') {
+    const tx = { id: pfId(), type: 'buy', date, qty: net, price: 1, fee: 0, src: p.id, kind: 'div', divDate: date };
+    ensureCash().txs.push(tx); rec.txId = tx.id;
+  }
+  (p.divs ||= {})[date] = rec;
+}
+// Onaylanmış/yoksayılmış temettüyü geri al (yeniden "bekleyen" olur)
+function undoDiv(p, date) {
+  const rec = p.divs?.[date];
+  if (!rec) return null;
+  const cash = CASH();
+  if (rec.txId && cash) {
+    const txs = cash.txs.filter(t => t.id !== rec.txId), c = pfCalc({ ...cash, txs });
+    if (c.oversold) return 'Bu temettü geri alınırsa TL bakiye eksiye düşer (para sonraki alımlarda kullanılmış). Önce o alımları silin.';
+    cash.txs = txs;
+  }
+  delete p.divs[date];
+  return null;
+}
+
 // Portföye dışarıdan giren (+) ve çıkan (−) para: net yatırılan
 function netInvested() {
   let net = 0;
@@ -1025,6 +1073,7 @@ function renderPortfolio() {
   const all = pfRows(), rows = all.filter(r => r.open), closed = all.filter(r => !r.open && r.c.txs.length);
   const tot = rows.reduce((a, r) => ({ value: a.value + (r.value || 0), cost: a.cost + r.c.cost, day: a.day + (r.day || 0) }), { value: 0, cost: 0, day: 0 });
   const unreal = tot.value - tot.cost, realized = all.reduce((a, r) => a + r.c.realized, 0), inv = netInvested();
+  const pend = pendingDivs(), pendNet = pend.reduce((a, x) => a + x.net, 0), ret = tot.value - inv + divReceivedExt();
   const divYear = rows.filter(r => r.s && !isAsset(r.p)).reduce((a, r) => a + (r.s.divTtm || 0) * r.c.qty, 0);
   const byCat = Object.fromEntries(Object.keys(PF_CATS).map(c => [c, rows.filter(r => r.p.cat === c)]));
   const catVal = c => byCat[c].reduce((a, r) => a + (r.value || 0), 0);
@@ -1072,12 +1121,15 @@ function renderPortfolio() {
   </section>
   ${pfForm ? pfFormHtml() : ''}
   ${txForm ? txFormHtml() : ''}
+  ${pend.length ? divPendingHtml(pend) : ''}
   ${all.length ? `
   <div class="pfsum">
     <div class="ret"><span>Toplam değer</span><b>${fmt.big(tot.value)} ₺</b></div>
     <div class="ret"><span title="Emtia / İtibari'deki Türk lirası bakiyesi">Nakit (TL)</span><b>${tl(cashBal())}</b></div>
     <div class="ret"><span title="Dışarıdan yatırılan − dışarı çekilen para">Net yatırılan</span><b>${tl(inv)}</b></div>
-    <div class="ret"><span title="Toplam değer − net yatırılan (gerçekleşen ve açık K/Z birlikte; temettüler TL bakiyeye girildiyse dahil)">Toplam getiri</span><b class="${cls(tot.value - inv)}">${signed(tot.value - inv)} ₺ · ${fmt.pct(inv > 0 ? (tot.value - inv) / inv : null)}</b></div>
+    <div class="ret"><span title="Toplam değer − net yatırılan + portföy dışına alınan temettüler (gerçekleşen, açık K/Z ve onaylanan temettüler birlikte)">Toplam getiri</span><b class="${cls(ret)}">${signed(ret)} ₺ · ${fmt.pct(inv > 0 ? ret / inv : null)}</b></div>
+    <div class="ret"><span title="Onaylanan temettülerin net toplamı">Alınan temettü</span><b>${tl(divReceived())}</b></div>
+    ${pendNet > 0 ? `<div class="ret pendcard"><span title="Hak kullanımı gerçekleşmiş, onayınızı bekleyen temettüler (tahmini net)">Bekleyen temettü</span><b>${tl(pendNet)}</b></div>` : ''}
     <div class="ret"><span title="Açık pozisyonların ortalama maliyet × adet toplamı">Maliyet</span><b>${fmt.big(tot.cost)} ₺</b></div>
     <div class="ret"><span title="Elde tutulan varlıkların kâr/zararı">Açık K/Z</span><b class="${cls(unreal)}">${signed(unreal)} ₺ · ${fmt.pct(tot.cost ? unreal / tot.cost : null)}</b></div>
     <div class="ret"><span title="Satışlardan gerçekleşen kâr/zarar (ortalama maliyet yöntemi, komisyon dahil)">Gerçekleşen K/Z</span><b class="${cls(realized)}">${signed(realized)} ₺</b></div>
@@ -1108,10 +1160,24 @@ function renderPortfolio() {
   <p class="muted" style="font-size:12px">Fiyatlar gecikmelidir. Gerçekleşen K/Z ortalama maliyet yöntemiyle hesaplanır; temettüler dahil değildir. Altın ve gümüş gram fiyatı uluslararası ons fiyatı × dolar kurundan hesaplanır; Kapalıçarşı ve banka fiyatlarından farklı olabilir.</p>`;
 }
 
-const txLabel = (p, t) => isCash(p) ? (t.src ? (t.type === 'buy' ? 'Satış geliri' : 'Alım ödemesi') : (t.type === 'buy' ? 'Yatırma' : 'Çekme')) : (t.type === 'buy' ? 'Alım' : 'Satış');
+const txLabel = (p, t) => isCash(p) ? (t.kind === 'div' ? 'Temettü' : t.src ? (t.type === 'buy' ? 'Satış geliri' : 'Alım ödemesi') : (t.type === 'buy' ? 'Yatırma' : 'Çekme')) : (t.type === 'buy' ? 'Alım' : 'Satış');
 function txFlowNote(p, t) {
   if (isCash(p)) { const sp = t.src && state.portfolio.find(x => x.id === t.src); return sp ? ` <small class="muted">${esc(assetName(sp))}</small>` : ''; }
   return t.flow === 'cash' ? ` <small class="muted">${t.type === 'buy' ? 'TL bakiyeden' : '→ TL bakiye'}</small>` : '';
+}
+function divPendingHtml(pend) {
+  return `<section class="panel divpend" id="divPend">
+    <h2>Temettü ödemesi tespit edildi <span class="muted">· ${pend.length} ödeme onayınızı bekliyor</span></h2>
+    <p class="muted" style="font-size:12px;margin:0 0 8px">Şirket bu tarihte hak kullanımını gerçekleştirdi. Adet, hak kullanımından önceki gün sonunda elinizde olan miktardır.
+      Net tutar %15 stopajla tahmin edildi (GYO ve bazı şirketlerde stopaj yoktur); hesabınıza geçen tutarı kontrol edip onaylayın.</p>
+    <div class="tablewrap flat"><table class="grid"><thead><tr><th class="tk">Hisse</th><th>Hak kullanım</th><th>Adet</th><th>Hisse başı brüt ₺</th><th>Brüt ₺</th><th>Hesaba geçen net ₺</th><th>Nereye</th><th></th></tr></thead><tbody>
+      ${pend.map(x => { const k = `${x.p.id}|${x.date}`; return `<tr data-divkey="${k}"><td class="tk"><span class="code">${x.p.sym}</span><span class="nm">${PF_CATS[x.p.cat].label}</span></td>
+        <td>${fmt.date(x.date)}</td><td>${qtyFmt(x.qty)}</td><td>${fmt.price(x.per)}</td><td>${fmt.price(x.gross)}</td>
+        <td><input class="divnet" inputmode="decimal" value="${trNum(Math.round(x.net * 100) / 100)}" aria-label="${x.p.sym} net tutar"></td>
+        <td class="txt"><select class="divflow btn"><option value="cash">TL bakiyeye ekle</option><option value="ext">Portföy dışına</option></select></td>
+        <td class="txt act"><button type="button" class="ic buy" data-divok="${k}">Aldım, kaydet</button> <button type="button" class="ic" data-divno="${k}" title="Bu ödeme hesabıma geçmedi">Almadım</button></td></tr>`; }).join('')}
+    </tbody></table></div>
+  </section>`;
 }
 function txTable(r) {
   const u = unitOf(r.p);
@@ -1128,8 +1194,17 @@ function txTable(r) {
       <td class="txt"><span class="chip ${t.type === 'buy' ? 'up' : 'down'}">${txLabel(r.p, t)}</span>${txFlowNote(r.p, t)}</td>
       <td>${qtyFmt(t.qty)} <span class="muted">${u}</span></td><td>${fmt.price(t.price)}</td><td>${t.fee ? fmt.price(t.fee) : '—'}</td><td>${fmt.big(t.qty * t.price)}</td>
       <td class="${cls(res)}">${res == null ? '—' : signed(res)}</td><td>${qtyFmt(after)}</td>
-      <td class="txt act">${t.src ? '<span class="muted" title="Otomatik oluştu; kaynak işlemi silin">🔗</span>' : `<button type="button" class="ic${pfDelArmed === t.id ? ' armed' : ''}" data-txdel="${r.p.id}:${t.id}" aria-label="İşlemi sil">${pfDelArmed === t.id ? 'Sil?' : '×'}</button>`}</td></tr>`).join('')}
-  </tbody></table></div>`;
+      <td class="txt act">${t.src && t.kind !== 'div' ? '<span class="muted" title="Otomatik oluştu; kaynak işlemi silin">🔗</span>' : `<button type="button" class="ic${pfDelArmed === t.id ? ' armed' : ''}" data-txdel="${r.p.id}:${t.id}" aria-label="İşlemi sil">${pfDelArmed === t.id ? 'Sil?' : '×'}</button>`}</td></tr>`).join('')}
+  </tbody></table>${divRows(r)}</div>`;
+}
+function divRows(r) {
+  const ds = Object.entries(r.p.divs || {}).sort((a, b) => a[0] < b[0] ? 1 : -1);
+  if (!ds.length) return '';
+  return `<table class="grid mini" style="margin-top:8px"><thead><tr><th class="tk">Hak kullanım</th><th>Temettü</th><th>Net ₺</th><th>Nereye</th><th></th></tr></thead><tbody>
+    ${ds.map(([d, x]) => `<tr><td class="tk">${fmt.date(d)}</td><td class="txt">${x.status === 'received' ? '<span class="chip up">Alındı</span>' : '<span class="chip">Yoksayıldı</span>'}</td>
+      <td>${x.status === 'received' ? fmt.price(x.net) : '—'}</td><td class="txt">${x.status !== 'received' ? '—' : x.flow === 'cash' ? 'TL bakiye' : 'Portföy dışı'}</td>
+      <td class="txt act"><button type="button" class="ic" data-divundo="${r.p.id}|${d}" title="Geri al: yeniden onay bekler">Geri al</button></td></tr>`).join('')}
+  </tbody></table>`;
 }
 
 function pfFormHtml() {
@@ -1318,6 +1393,16 @@ view.addEventListener('click', e => {
   if (d.txall) { txReadForm(); const p = state.portfolio.find(x => x.id === txForm.pid); txForm.qty = trNum(pfCalc(p).qty); renderPortfolio(); return; }
   if (d.txcancel) { txForm = null; const c = CASH(); if (c && !c.txs.length) state.portfolio = state.portfolio.filter(x => x !== c); renderPortfolio(); return; }
   if (d.pfhist) { pfHist.has(d.pfhist) ? pfHist.delete(d.pfhist) : pfHist.add(d.pfhist); pfDelArmed = null; renderPortfolio(); return; }
+  if (d.divok || d.divno || d.divundo) {
+    const [pid, date] = (d.divok || d.divno || d.divundo).split('|');
+    const p = state.portfolio.find(x => x.id === pid);
+    if (!p) return;
+    if (d.divundo) { const err = undoDiv(p, date); if (err) { alertMsg(err); return; } persist(); renderPortfolio(); return; }
+    if (d.divno) { (p.divs ||= {})[date] = { status: 'ignored' }; persist(); renderPortfolio(); return; }
+    const row = b.closest('tr'), net = num(row.querySelector('.divnet').value), flow = row.querySelector('.divflow').value;
+    if (!(net > 0)) { alertMsg('Net tutar sıfırdan büyük bir sayı olmalı.'); return; }
+    confirmDiv(p, date, net, flow); persist(); renderPortfolio(); return;
+  }
   if (d.cashflow) { ensureCash(); txOpen(d.cashflow, CASH().id); pfDelArmed = null; renderPortfolio(); window.scrollTo(0, 0); $('#txQty')?.focus(); return; }
   if (d.pfdel) {
     if (pfDelArmed !== d.pfdel) { pfDelArmed = d.pfdel; renderPortfolio(); return; } // ilk dokunuş: onay iste
