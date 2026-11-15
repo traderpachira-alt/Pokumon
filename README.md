@@ -28,6 +28,10 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
   sıradaki temettü), *Trend / Momentum* (Supertrend, trend, RSI; trend bozulunca "Çıkış sinyali"),
   *Emtia / İtibari* (gram altın, gram gümüş, TL, dolar, euro). Toplam değer, kâr/zarar, günlük değişim,
   kategori dağılımı. Veriler yalnızca cihazda saklanır.
+- **Bulut senkronizasyonu (isteğe bağlı):** portföy, izleme listesi ve kayıtlı taramalar kullanıcının kendi özel
+  GitHub Gist'inde tutulur; erişim anahtarı (yalnızca `gist` yetkisi) sadece cihazın tarayıcısında saklanır.
+  Açılışta, uygulamaya dönünce ve değişiklikten sonra eşitlenir; iki cihaz habersiz değiştirirse sorulur.
+  Site bağlantısı paylaşılabilir: başkaları kendi (boş) portföyünü görür.
 - **Aktar:** izleme listesi, kayıtlı taramalar ve portföyü bir kod ya da bağlantıyla başka cihaza taşı.
 - **Güncelleme uyarısı:** yeni sürüm yayınlanınca uygulamada "Yeni sürüm hazır · Yenile" çıkar.
 
