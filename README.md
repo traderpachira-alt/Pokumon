@@ -19,7 +19,9 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
   sektör medyanıyla karşılaştırmalı temel oranlar, aynı sektördeki hisseler.
 - **Karşılaştır:** en fazla 5 hisse + BIST 100, dönem başı = 100; dönem getirisi, BIST 100'e göre fark,
   en büyük düşüş ve volatilite tablosu.
-- **Portföy:** varlıkları kategoriyle ekle: *Temettü* (verim, maliyete göre verim, yıllık beklenen temettü,
+- **Portföy:** alım/satım işlemleriyle yönetilir (tarih, adet, fiyat, komisyon); ortalama maliyet ve
+  gerçekleşen K/Z ortalama maliyet yöntemiyle hesaplanır, tamamı satılanlar "Kapanan pozisyonlar"a geçer.
+  Kategoriler: *Temettü* (verim, maliyete göre verim, yıllık beklenen temettü,
   sıradaki temettü), *Trend / Momentum* (Supertrend, trend, RSI; trend bozulunca "Çıkış sinyali"),
   *Emtia / İtibari* (gram altın, gram gümüş, TL, dolar, euro). Toplam değer, kâr/zarar, günlük değişim,
   kategori dağılımı. Veriler yalnızca cihazda saklanır.

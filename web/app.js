@@ -831,7 +831,8 @@ function parseCode(code) {
   if (!m) throw new Error('Kod tanınmadı. "T1." ile başlayan kodun tamamını yapıştırın.');
   const d = JSON.parse(b64d(m[1].slice(3)));
   return { w: Array.isArray(d.w) ? d.w.filter(x => typeof x === 'string') : [], s: Array.isArray(d.s) ? d.s.filter(x => x && x.name) : [], c: Array.isArray(d.c) ? d.c : [],
-    p: Array.isArray(d.p) ? d.p.filter(x => x && x.id && x.sym && PF_CATS[x.cat] && Number.isFinite(x.qty)) : [] };
+    p: Array.isArray(d.p) ? d.p.filter(x => x && x.id && x.sym && PF_CATS[x.cat] && (Array.isArray(x.txs) || Number.isFinite(x.qty)))
+      .map(x => Array.isArray(x.txs) ? x : { id: x.id, cat: x.cat, sym: x.sym, note: x.note || null, txs: [{ id: pfId(), type: 'buy', date: x.date || null, qty: x.qty, price: x.cost, fee: 0 }] }) : [] };
 }
 
 function renderTransfer(incoming) {
@@ -870,6 +871,8 @@ function renderTransfer(incoming) {
 
 /* ============================================================
    Portföy (yalnızca bu cihazda saklanır; Aktar ile taşınır)
+   Her pozisyon bir işlem listesidir: alım/satım (tarih, adet, fiyat, komisyon).
+   Adet, ortalama maliyet ve gerçekleşen K/Z bu listeden ortalama maliyet yöntemiyle hesaplanır.
    ============================================================ */
 const PF_CATS = {
   temettu: { label: 'Temettü', hint: 'Temettüsü için tutulan hisseler', color: '--c-sma50' },
@@ -883,20 +886,47 @@ const ASSETS = {
   USD: { name: 'Dolar', unit: '$', qtyLabel: 'Tutar ($)' },
   EUR: { name: 'Euro', unit: '€', qtyLabel: 'Tutar (€)' },
 };
-let pfForm = null; // açık form: {id?, cat, sym, qty, cost, date, note}
-let pfDelArmed = null;
+let pfForm = null;    // yeni varlık / kategori-not düzenleme formu
+let txForm = null;    // alım-satım formu: {pid, type, date, qty, price, fee}
+let pfDelArmed = null; // iki dokunuşla silme (pozisyon ya da işlem kimliği)
+const pfHist = new Set(); // işlem geçmişi açık pozisyonlar
 const pfId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const isAsset = p => p.cat === 'emtia';
+const todayIso = () => { const d = new Date(); return new Date(d - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10); };
+const unitOf = p => isAsset(p) ? (ASSETS[p.sym]?.unit || '') : 'hisse';
+const assetName = p => isAsset(p) ? (ASSETS[p.sym]?.name || p.sym) : p.sym;
+
+// Eski biçimdeki pozisyonları ({qty, cost, date}) tek alım işlemine çevir
+state.portfolio = (state.portfolio || []).map(p => Array.isArray(p.txs) ? p : {
+  id: p.id || pfId(), cat: p.cat, sym: p.sym, note: p.note || null,
+  txs: [{ id: pfId(), type: 'buy', date: p.date || null, qty: p.qty, price: p.cost, fee: 0 }],
+});
+
+function pfCalc(p, extra) {
+  // Tarih sırasıyla; tarihsiz işlemler en başta, girildikleri sırada
+  const txs = [...p.txs, ...(extra ? [extra] : [])].map((t, i) => ({ ...t, _i: i }))
+    .sort((a, b) => (a.date || '') === (b.date || '') ? a._i - b._i : (a.date || '') < (b.date || '') ? -1 : 1);
+  let qty = 0, cost = 0, realized = 0, bought = 0, sold = 0, lastSell = null, oversold = null;
+  for (const t of txs) {
+    if (t.type === 'buy') { qty += t.qty; cost += t.qty * t.price + (t.fee || 0); bought += t.qty; continue; }
+    if (t.qty > qty + 1e-9) oversold ??= { date: t.date, have: qty };
+    const q = Math.min(t.qty, qty), avg = qty ? cost / qty : 0;
+    realized += q * t.price - (t.fee || 0) - q * avg;
+    cost -= q * avg; qty -= q; sold += q; lastSell = t.date || lastSell;
+  }
+  if (qty < 1e-9) { qty = 0; cost = 0; }
+  return { qty, cost, avg: qty ? cost / qty : 0, realized, bought, sold, lastSell, oversold, txs };
+}
 function pfQuote(p) {
   if (isAsset(p)) { const a = DATA.assets?.[p.sym]; return a ? { last: a.last, chg1d: a.chg1d } : null; }
   const s = BY.get(p.sym); return s ? { last: s.last, chg1d: s.chg1d, s } : null;
 }
 function pfRows() {
   return state.portfolio.map(p => {
-    const q = pfQuote(p), value = q ? q.last * p.qty : null, costTot = p.cost * p.qty;
-    const pl = value != null ? value - costTot : null;
-    const day = q && ok(q.chg1d) ? value - value / (1 + q.chg1d) : null;
-    return { p, q, s: q?.s, value, costTot, pl, plPct: pl != null && costTot ? pl / costTot : null, day };
+    const c = pfCalc(p), q = pfQuote(p), value = q && c.qty ? q.last * c.qty : (c.qty ? null : 0);
+    const pl = value != null ? value - c.cost : null;
+    const day = q && ok(q.chg1d) && c.qty ? value - value / (1 + q.chg1d) : 0;
+    return { p, c, q, s: q?.s, value, pl, plPct: pl != null && c.cost ? pl / c.cost : null, day, open: c.qty > 0 };
   });
 }
 // Trend pozisyonunda çıkış uyarıları: güçlüler "Çıkış sinyali", zayıflar "Dikkat"
@@ -911,32 +941,45 @@ function exitSignals(s) {
   if (s.tkCross === 'down') weak.push('Tenkan/Kijun sat');
   return { strong, weak };
 }
+const qtyFmt = q => Number.isInteger(q) ? F0.format(q) : F2.format(q);
+const signed = x => !ok(x) ? '—' : (x > 0 ? '+' : '') + fmt.big(x);
+
+function alertMsg(text) {
+  const el = document.createElement('div'); el.className = 'updatebar'; el.textContent = text; el.setAttribute('role', 'alert');
+  document.body.appendChild(el); setTimeout(() => el.remove(), 5000);
+}
 
 function renderPortfolio() {
   destroyCharts();
   document.title = 'Portföy · Tahta';
-  const rows = pfRows();
-  const tot = rows.reduce((a, r) => ({ value: a.value + (r.value || 0), cost: a.cost + r.costTot, day: a.day + (r.day || 0) }), { value: 0, cost: 0, day: 0 });
-  const pl = tot.value - tot.cost;
-  const divYear = rows.filter(r => r.s && !isAsset(r.p)).reduce((a, r) => a + (r.s.divTtm || 0) * r.p.qty, 0);
+  const all = pfRows(), rows = all.filter(r => r.open), closed = all.filter(r => !r.open && r.c.txs.length);
+  const tot = rows.reduce((a, r) => ({ value: a.value + (r.value || 0), cost: a.cost + r.c.cost, day: a.day + (r.day || 0) }), { value: 0, cost: 0, day: 0 });
+  const unreal = tot.value - tot.cost, realized = all.reduce((a, r) => a + r.c.realized, 0);
+  const divYear = rows.filter(r => r.s && !isAsset(r.p)).reduce((a, r) => a + (r.s.divTtm || 0) * r.c.qty, 0);
   const byCat = Object.fromEntries(Object.keys(PF_CATS).map(c => [c, rows.filter(r => r.p.cat === c)]));
   const catVal = c => byCat[c].reduce((a, r) => a + (r.value || 0), 0);
   const share = r => tot.value ? (r.value || 0) / tot.value : null;
-  const actions = r => `<td class="txt act"><button type="button" class="ic" data-pfedit="${r.p.id}" aria-label="Düzenle">✎</button><button type="button" class="ic${pfDelArmed === r.p.id ? ' armed' : ''}" data-pfdel="${r.p.id}" aria-label="Sil">${pfDelArmed === r.p.id ? 'Sil?' : '×'}</button></td>`;
-  const name = r => isAsset(r.p) ? `<span class="code">${ASSETS[r.p.sym]?.name || r.p.sym}</span>` : `<span class="code">${r.p.sym}</span>${r.s ? tedbirIcon(r.s) : ' <span class="muted">(veri yok)</span>'}`;
+
+  const actions = r => `<td class="txt act">
+    <button type="button" class="ic buy" data-pftx="buy:${r.p.id}" title="Alım ekle">Al</button>
+    <button type="button" class="ic sell" data-pftx="sell:${r.p.id}" title="Satış ekle">Sat</button>
+    <button type="button" class="ic" data-pfhist="${r.p.id}" aria-expanded="${pfHist.has(r.p.id)}" title="İşlem geçmişi">İşlemler <span class="muted">${r.c.txs.length}</span></button>
+    <button type="button" class="ic" data-pfedit="${r.p.id}" aria-label="Kategori / not düzenle">✎</button>
+    <button type="button" class="ic${pfDelArmed === r.p.id ? ' armed' : ''}" data-pfdel="${r.p.id}" aria-label="Pozisyonu sil">${pfDelArmed === r.p.id ? 'Sil?' : '×'}</button></td>`;
+  const name = r => isAsset(r.p) ? `<span class="code">${assetName(r.p)}</span>` : `<span class="code">${r.p.sym}</span>${r.s ? tedbirIcon(r.s) : ' <span class="muted">(veri yok)</span>'}`;
   const note = r => r.p.note ? `<span class="nm">${esc(r.p.note)}</span>` : '';
-  const qtyFmt = q => Number.isInteger(q) ? F0.format(q) : F2.format(q);
-  const common = r => `<td>${qtyFmt(r.p.qty)}</td><td>${fmt.price(r.p.cost)}</td><td>${r.q ? fmt.price(r.q.last) : '—'}</td><td>${r.value != null ? fmt.big(r.value) : '—'}</td>
-    <td class="${cls(r.pl)}">${r.pl != null ? (r.pl > 0 ? '+' : '') + fmt.big(r.pl) : '—'}</td><td class="${cls(r.plPct)}">${fmt.pct(r.plPct)}</td><td>${fmt.pctPlain(share(r))}</td>`;
-  const commonHead = (q = 'Adet') => `<th>${q}</th><th title="Birim başına ortalama maliyet (₺)">Maliyet</th><th>Fiyat</th><th>Değer ₺</th><th>K/Z ₺</th><th>K/Z %</th><th title="Portföy içindeki payı">Pay</th>`;
+  const common = r => `<td>${qtyFmt(r.c.qty)}</td><td>${fmt.price(r.c.avg)}</td><td>${r.q ? fmt.price(r.q.last) : '—'}</td><td>${r.value != null ? fmt.big(r.value) : '—'}</td>
+    <td class="${cls(r.pl)}">${signed(r.pl)}</td><td class="${cls(r.plPct)}">${fmt.pct(r.plPct)}</td><td>${fmt.pctPlain(share(r))}</td>`;
+  const commonHead = (q = 'Adet') => `<th>${q}</th><th title="Birim başına ortalama maliyet (₺), komisyon dahil">Ort. maliyet</th><th>Fiyat</th><th>Değer ₺</th><th>K/Z ₺</th><th>K/Z %</th><th title="Portföy içindeki payı">Pay</th>`;
+  const histRow = (r, cols) => !pfHist.has(r.p.id) ? '' : `<tr class="txrow"><td colspan="${cols}">${txTable(r)}</td></tr>`;
 
   const tables = {
-    temettu: list => `<table class="grid"><thead><tr><th class="tk">Hisse</th>${commonHead()}<th title="Son 12 ay temettü / güncel fiyat">12A verim</th><th title="Son 12 ay temettü / maliyet">Maliyete göre</th><th title="Son 12 ayın temettüsü × adet (brüt)">Yıllık temettü ₺</th><th>Sıradaki temettü</th><th></th></tr></thead><tbody>
+    temettu: list => `<table class="grid"><thead><tr><th class="tk">Hisse</th>${commonHead()}<th title="Son 12 ay temettü / güncel fiyat">12A verim</th><th title="Son 12 ay temettü / ortalama maliyet">Maliyete göre</th><th title="Son 12 ayın temettüsü × adet (brüt)">Yıllık temettü ₺</th><th>Sıradaki temettü</th><th></th></tr></thead><tbody>
       ${list.map(r => `<tr data-t="${r.p.sym}"><td class="tk">${name(r)}${note(r)}</td>${common(r)}
-        <td>${fmt.pctPlain(r.s?.divYield)}</td><td>${r.s?.divTtm && r.p.cost ? fmt.pctPlain(r.s.divTtm / r.p.cost) : '—'}</td><td>${r.s?.divTtm ? fmt.big(r.s.divTtm * r.p.qty) : '—'}</td>
-        <td class="txt">${r.s?.divUpcoming?.length ? `${r.s.nextDivDate ? `<span class="chip up">${fmt.date(r.s.nextDivDate)}</span>` : '<span class="chip warn">Tarih bekleniyor</span>'} <span class="num">${fmt.big(r.s.nextDivNet * r.p.qty)} ₺ net</span>` : '<span class="muted">—</span>'}</td>${actions(r)}</tr>`).join('')}
+        <td>${fmt.pctPlain(r.s?.divYield)}</td><td>${r.s?.divTtm && r.c.avg ? fmt.pctPlain(r.s.divTtm / r.c.avg) : '—'}</td><td>${r.s?.divTtm ? fmt.big(r.s.divTtm * r.c.qty) : '—'}</td>
+        <td class="txt">${r.s?.divUpcoming?.length ? `${r.s.nextDivDate ? `<span class="chip up">${fmt.date(r.s.nextDivDate)}</span>` : '<span class="chip warn">Tarih bekleniyor</span>'} <span class="num">${fmt.big(r.s.nextDivNet * r.c.qty)} ₺ net</span>` : '<span class="muted">—</span>'}</td>${actions(r)}</tr>${histRow(r, 13)}`).join('')}
     </tbody></table>`,
-    trend: list => `<table class="grid"><thead><tr><th class="tk">Hisse</th>${commonHead()}<th>Durum</th><th>Supertrend</th><th>Trend</th><th>RSI</th><th title="Supertrend çizgisine uzaklık: olası stop seviyesi">ST stop</th><th></th></tr></thead><tbody>
+    trend: list => `<table class="grid"><thead><tr><th class="tk">Hisse</th>${commonHead()}<th>Durum</th><th>Supertrend</th><th>Trend</th><th>RSI</th><th title="Supertrend çizgisi: olası stop seviyesi">ST stop</th><th></th></tr></thead><tbody>
       ${list.map(r => {
         const s = r.s, sig = s ? exitSignals(s) : { strong: [], weak: [] };
         const status = !s ? '—' : sig.strong.length ? `<span class="chip down" title="${esc([...sig.strong, ...sig.weak].join(' · '))}">Çıkış sinyali</span> <small class="muted">${esc(sig.strong[0])}</small>`
@@ -944,11 +987,11 @@ function renderPortfolio() {
         return `<tr data-t="${r.p.sym}" class="${sig.strong.length ? 'exit' : ''}"><td class="tk">${name(r)}${note(r)}</td>${common(r)}
           <td class="txt">${status}</td><td class="txt">${s?.stTrend ? `<span class="chip ${ST[s.stTrend][1]}">${ST[s.stTrend][0]}</span>` : '—'}</td>
           <td class="txt">${s?.trend ? `<span class="chip ${TREND[s.trend][1]}">${TREND[s.trend][0]}</span>` : '—'}</td><td>${fmt.num(s?.rsi)}</td>
-          <td title="Supertrend seviyesi">${s && ok(s.stDist) ? fmt.price(s.last / (1 + s.stDist)) : '—'}</td>${actions(r)}</tr>`;
+          <td>${s && ok(s.stDist) ? fmt.price(s.last / (1 + s.stDist)) : '—'}</td>${actions(r)}</tr>${histRow(r, 14)}`;
       }).join('')}
     </tbody></table>`,
     emtia: list => `<table class="grid"><thead><tr><th class="tk">Varlık</th>${commonHead('Miktar')}<th>Gün</th><th></th></tr></thead><tbody>
-      ${list.map(r => `<tr><td class="tk">${name(r)}${note(r)}</td>${common(r)}<td class="${cls(r.q?.chg1d)}">${fmt.pct(r.q?.chg1d)}</td>${actions(r)}</tr>`).join('')}
+      ${list.map(r => `<tr><td class="tk">${name(r)}${note(r)}</td>${common(r)}<td class="${cls(r.q?.chg1d)}">${fmt.pct(r.q?.chg1d)}</td>${actions(r)}</tr>${histRow(r, 10)}`).join('')}
     </tbody></table>`,
   };
 
@@ -958,46 +1001,96 @@ function renderPortfolio() {
     <button type="button" class="btn primary" data-pfadd="temettu">+ Varlık ekle</button>
   </section>
   ${pfForm ? pfFormHtml() : ''}
-  ${state.portfolio.length ? `
+  ${txForm ? txFormHtml() : ''}
+  ${all.length ? `
   <div class="pfsum">
     <div class="ret"><span>Toplam değer</span><b>${fmt.big(tot.value)} ₺</b></div>
-    <div class="ret"><span>Maliyet</span><b>${fmt.big(tot.cost)} ₺</b></div>
-    <div class="ret"><span>Kâr / zarar</span><b class="${cls(pl)}">${pl > 0 ? '+' : ''}${fmt.big(pl)} ₺ · ${fmt.pct(tot.cost ? pl / tot.cost : null)}</b></div>
-    <div class="ret"><span>Bugün</span><b class="${cls(tot.day)}">${tot.day > 0 ? '+' : ''}${fmt.big(tot.day)} ₺ · ${fmt.pct(tot.value - tot.day ? tot.day / (tot.value - tot.day) : null)}</b></div>
+    <div class="ret"><span title="Açık pozisyonların ortalama maliyet × adet toplamı">Maliyet</span><b>${fmt.big(tot.cost)} ₺</b></div>
+    <div class="ret"><span title="Elde tutulan varlıkların kâr/zararı">Açık K/Z</span><b class="${cls(unreal)}">${signed(unreal)} ₺ · ${fmt.pct(tot.cost ? unreal / tot.cost : null)}</b></div>
+    <div class="ret"><span title="Satışlardan gerçekleşen kâr/zarar (ortalama maliyet yöntemi, komisyon dahil)">Gerçekleşen K/Z</span><b class="${cls(realized)}">${signed(realized)} ₺</b></div>
+    <div class="ret"><span>Bugün</span><b class="${cls(tot.day)}">${signed(tot.day)} ₺ · ${fmt.pct(tot.value - tot.day ? tot.day / (tot.value - tot.day) : null)}</b></div>
     <div class="ret"><span title="Hisselerin son 12 ay temettüsü × adet (brüt)">Yıllık temettü</span><b>${fmt.big(divYear)} ₺ · ${fmt.pctPlain(tot.value ? divYear / tot.value : null)}</b></div>
   </div>
-  <div class="alloc" aria-label="Kategori dağılımı">
+  ${tot.value ? `<div class="alloc" aria-label="Kategori dağılımı">
     <div class="bar">${Object.entries(PF_CATS).map(([c, d]) => { const v = catVal(c); return v > 0 ? `<i style="width:${v / tot.value * 100}%;background:var(${d.color})" title="${d.label}"></i>` : ''; }).join('')}</div>
-    <div class="legend2">${Object.entries(PF_CATS).map(([c, d]) => `<span><i style="background:var(${d.color})"></i>${d.label} <b class="num">${fmt.pctPlain(tot.value ? catVal(c) / tot.value : 0)}</b> <span class="muted num">${fmt.big(catVal(c))} ₺</span></span>`).join('')}</div>
-  </div>` : `<p class="empty">Portföyünüz boş. "+ Varlık ekle" ile başlayın ya da bir hisse sayfasındaki "+ Portföye ekle" düğmesini kullanın.</p>`}
+    <div class="legend2">${Object.entries(PF_CATS).filter(([c]) => catVal(c) > 0).map(([c, d]) => `<span><i style="background:var(${d.color})"></i>${d.label} <b class="num">${fmt.pctPlain(catVal(c) / tot.value)}</b> <span class="muted num">${fmt.big(catVal(c))} ₺</span></span>`).join('')}</div>
+  </div>` : ''}` : `<p class="empty">Portföyünüz boş. "+ Varlık ekle" ile başlayın ya da bir hisse sayfasındaki "+ Portföye ekle" düğmesini kullanın.</p>`}
   ${Object.entries(PF_CATS).filter(([c]) => byCat[c].length).map(([c, d]) => `
   <section class="panel pfcat">
     <h2><i style="background:var(${d.color})"></i>${d.label} <span class="muted">· ${byCat[c].length} varlık · ${fmt.big(catVal(c))} ₺</span>
       <button type="button" class="btn ghost" data-pfadd="${c}">+ Ekle</button></h2>
     <div class="tablewrap flat">${tables[c](byCat[c].sort((a, b) => (b.value || 0) - (a.value || 0)))}</div>
   </section>`).join('')}
-  <p class="muted" style="font-size:12px">Fiyatlar gecikmelidir. Altın ve gümüş gram fiyatı uluslararası ons fiyatı × dolar kurundan hesaplanır; Kapalıçarşı ve banka fiyatlarından farklı olabilir.</p>`;
+  ${closed.length ? `
+  <section class="panel pfcat">
+    <h2>Kapanan pozisyonlar <span class="muted">· tamamı satılanlar</span></h2>
+    <div class="tablewrap flat"><table class="grid"><thead><tr><th class="tk">Varlık</th><th>Kategori</th><th>Alınan</th><th>Satılan</th><th>Gerçekleşen K/Z ₺</th><th>Son satış</th><th></th></tr></thead><tbody>
+      ${closed.map(r => `<tr${isAsset(r.p) ? '' : ` data-t="${r.p.sym}"`}><td class="tk"><span class="code">${assetName(r.p)}</span>${note(r)}</td><td class="txt">${PF_CATS[r.p.cat].label}</td>
+        <td>${qtyFmt(r.c.bought)}</td><td>${qtyFmt(r.c.sold)}</td><td class="${cls(r.c.realized)}">${signed(r.c.realized)}</td><td>${fmt.date(r.c.lastSell)}</td>
+        <td class="txt act"><button type="button" class="ic buy" data-pftx="buy:${r.p.id}" title="Yeniden al">Al</button>
+          <button type="button" class="ic" data-pfhist="${r.p.id}" aria-expanded="${pfHist.has(r.p.id)}">İşlemler <span class="muted">${r.c.txs.length}</span></button>
+          <button type="button" class="ic${pfDelArmed === r.p.id ? ' armed' : ''}" data-pfdel="${r.p.id}" aria-label="Sil">${pfDelArmed === r.p.id ? 'Sil?' : '×'}</button></td></tr>${histRow(r, 7)}`).join('')}
+    </tbody></table></div>
+  </section>` : ''}
+  <p class="muted" style="font-size:12px">Fiyatlar gecikmelidir. Gerçekleşen K/Z ortalama maliyet yöntemiyle hesaplanır; temettüler dahil değildir. Altın ve gümüş gram fiyatı uluslararası ons fiyatı × dolar kurundan hesaplanır; Kapalıçarşı ve banka fiyatlarından farklı olabilir.</p>`;
+}
+
+function txTable(r) {
+  const u = unitOf(r.p);
+  // Her satışın o anki gerçekleşen K/Z'si için sırayla yeniden hesapla
+  let qty = 0, cost = 0;
+  const lines = r.c.txs.map(t => {
+    let res = null;
+    if (t.type === 'buy') { qty += t.qty; cost += t.qty * t.price + (t.fee || 0); }
+    else { const q = Math.min(t.qty, qty), avg = qty ? cost / qty : 0; res = q * t.price - (t.fee || 0) - q * avg; cost -= q * avg; qty -= q; }
+    return { t, res, after: qty };
+  });
+  return `<div class="txbox"><table class="grid mini"><thead><tr><th class="tk">Tarih</th><th>İşlem</th><th>Miktar</th><th>Fiyat ₺</th><th>Komisyon ₺</th><th>Tutar ₺</th><th title="Satışta gerçekleşen kâr/zarar">K/Z ₺</th><th>Sonra elde</th><th></th></tr></thead><tbody>
+    ${lines.slice().reverse().map(({ t, res, after }) => `<tr><td class="tk">${t.date ? fmt.date(t.date) : '<span class="muted">tarihsiz</span>'}</td>
+      <td class="txt"><span class="chip ${t.type === 'buy' ? 'up' : 'down'}">${t.type === 'buy' ? 'Alım' : 'Satış'}</span></td>
+      <td>${qtyFmt(t.qty)} <span class="muted">${u}</span></td><td>${fmt.price(t.price)}</td><td>${t.fee ? fmt.price(t.fee) : '—'}</td><td>${fmt.big(t.qty * t.price)}</td>
+      <td class="${cls(res)}">${res == null ? '—' : signed(res)}</td><td>${qtyFmt(after)}</td>
+      <td class="txt act"><button type="button" class="ic${pfDelArmed === t.id ? ' armed' : ''}" data-txdel="${r.p.id}:${t.id}" aria-label="İşlemi sil">${pfDelArmed === t.id ? 'Sil?' : '×'}</button></td></tr>`).join('')}
+  </tbody></table></div>`;
 }
 
 function pfFormHtml() {
-  const f = pfForm, asset = f.cat === 'emtia';
+  const f = pfForm, asset = f.cat === 'emtia', edit = !!f.id;
+  const cats = edit ? Object.entries(PF_CATS).filter(([c]) => (c === 'emtia') === asset) : Object.entries(PF_CATS);
   return `<form class="panel pfform" id="pfForm">
-    <h2>${f.id ? 'Varlığı düzenle' : 'Varlık ekle'}</h2>
-    <div class="seg" role="radiogroup" aria-label="Kategori">${Object.entries(PF_CATS).map(([c, d]) => `<button type="button" data-pfcat="${c}" aria-pressed="${f.cat === c}" title="${esc(d.hint)}">${d.label}</button>`).join('')}</div>
-    <p class="muted" style="font-size:12px;margin:0">${esc(PF_CATS[f.cat].hint)}</p>
+    <h2>${edit ? `${esc(assetName(f))} · kategori ve not` : 'Varlık ekle'}</h2>
+    ${cats.length > 1 ? `<div class="seg" role="radiogroup" aria-label="Kategori">${cats.map(([c, d]) => `<button type="button" data-pfcat="${c}" aria-pressed="${f.cat === c}" title="${esc(d.hint)}">${d.label}</button>`).join('')}</div>
+    <p class="muted" style="font-size:12px;margin:0">${esc(PF_CATS[f.cat].hint)}</p>` : ''}
     <div class="pfgrid">
-      ${asset
+      ${edit ? '' : asset
         ? `<label>Varlık<select id="pfSym" class="btn">${Object.entries(ASSETS).map(([k, a]) => `<option value="${k}"${k === f.sym ? ' selected' : ''}>${a.name}</option>`).join('')}</select></label>`
         : `<label>Hisse kodu<input id="pfSym" list="tickerList" value="${esc(f.sym || '')}" placeholder="ör. TUPRS" autocapitalize="characters" autocomplete="off" required></label>`}
-      <label>${asset ? (ASSETS[f.sym]?.qtyLabel || 'Miktar') : 'Adet'}<input id="pfQty" inputmode="decimal" value="${f.qty ?? ''}" required></label>
-      ${asset && f.sym === 'TRY' ? '' : `<label>Ortalama maliyet (₺ / ${asset ? ASSETS[f.sym]?.unit : 'hisse'})<input id="pfCost" inputmode="decimal" value="${f.cost ?? ''}" required></label>`}
-      <label>Alış tarihi <small class="muted">(isteğe bağlı)</small><input id="pfDate" type="date" value="${f.date || ''}"></label>
+      ${edit ? '' : `<label>${asset ? (ASSETS[f.sym]?.qtyLabel || 'Miktar') : 'Adet'}<input id="pfQty" inputmode="decimal" value="${esc(f.qty ?? '')}" required></label>
+      ${asset && f.sym === 'TRY' ? '' : `<label>Alış fiyatı (₺ / ${asset ? ASSETS[f.sym]?.unit : 'hisse'})<input id="pfCost" inputmode="decimal" value="${esc(f.cost ?? '')}" required></label>`}
+      <label>Alış tarihi<input id="pfDate" type="date" value="${f.date || ''}"></label>
+      <label>Komisyon (₺) <small class="muted">(isteğe bağlı)</small><input id="pfFee" inputmode="decimal" value="${esc(f.fee ?? '')}"></label>`}
       <label class="wide">Not <small class="muted">(isteğe bağlı)</small><input id="pfNote" maxlength="80" value="${esc(f.note || '')}"></label>
     </div>
-    <div class="row"><button class="btn primary">${f.id ? 'Kaydet' : 'Ekle'}</button><button type="button" class="btn" data-pfcancel="1">İptal</button><span id="pfMsg" class="down" role="status"></span></div>
+    ${edit ? '' : '<p class="muted" style="font-size:12px;margin:0">Aynı kategoride bu varlık zaten varsa yeni alım olarak eklenir ve ortalama maliyet güncellenir.</p>'}
+    <div class="row"><button class="btn primary">${edit ? 'Kaydet' : 'Ekle'}</button><button type="button" class="btn" data-pfcancel="1">İptal</button><span id="pfMsg" class="down" role="status"></span></div>
   </form>`;
 }
-// "1.234,56" ve "1234,56" Türkçe; virgül yoksa nokta ondalık sayılır ("1234.56")
+function txFormHtml() {
+  const f = txForm, p = state.portfolio.find(x => x.id === f.pid);
+  if (!p) return '';
+  const c = pfCalc(p), sell = f.type === 'sell', u = unitOf(p), fixed = isAsset(p) && p.sym === 'TRY';
+  return `<form class="panel pfform ${sell ? 'sellform' : ''}" id="txForm">
+    <h2>${esc(assetName(p))} · ${sell ? 'Satış' : 'Alım'} <span class="muted">· elde ${qtyFmt(c.qty)} ${u}${c.qty ? `, ort. maliyet ${fmt.price(c.avg)} ₺` : ''}</span></h2>
+    <div class="seg" role="radiogroup" aria-label="İşlem türü"><button type="button" data-txtype="buy" aria-pressed="${!sell}">Alım</button><button type="button" data-txtype="sell" aria-pressed="${sell}">Satış</button></div>
+    <div class="pfgrid">
+      <label>Tarih<input id="txDate" type="date" value="${f.date || ''}" required></label>
+      <label>${isAsset(p) ? (ASSETS[p.sym]?.qtyLabel || 'Miktar') : 'Adet'}${sell && c.qty ? ` <button type="button" class="linkbtn" data-txall="1">tümü (${qtyFmt(c.qty)})</button>` : ''}<input id="txQty" inputmode="decimal" value="${esc(f.qty ?? '')}" required></label>
+      ${fixed ? '' : `<label>${sell ? 'Satış' : 'Alış'} fiyatı (₺ / ${isAsset(p) ? u : 'hisse'})<input id="txPrice" inputmode="decimal" value="${esc(f.price ?? '')}" required></label>`}
+      <label>Komisyon (₺) <small class="muted">(isteğe bağlı)</small><input id="txFee" inputmode="decimal" value="${esc(f.fee ?? '')}"></label>
+    </div>
+    <div class="row"><button class="btn primary">${sell ? 'Satışı kaydet' : 'Alımı kaydet'}</button><button type="button" class="btn" data-txcancel="1">İptal</button><span id="txMsg" class="down" role="status"></span></div>
+  </form>`;
+}
 // Türkçe sayı girişi: "1.234,56" / "1234,56" / "1.000" (binlik) / "4.95" (virgül yoksa ve noktadan sonra 3 hane değilse ondalık)
 const num = v => {
   let t = String(v ?? '').trim().replace(/\s/g, '');
@@ -1006,19 +1099,28 @@ const num = v => {
   const x = parseFloat(t);
   return Number.isFinite(x) ? x : NaN;
 };
+const trNum = x => String(+x.toFixed(4)).replace('.', ',');
 function pfReadForm() {
-  // Form yeniden çizilmeden önce yazılanları koru
   if (!pfForm || !$('#pfForm')) return;
-  pfForm.sym = $('#pfSym')?.value.trim().toUpperCase() || pfForm.sym;
-  pfForm.qty = $('#pfQty')?.value ?? pfForm.qty;
-  pfForm.cost = $('#pfCost')?.value ?? pfForm.cost;
-  pfForm.date = $('#pfDate')?.value ?? pfForm.date;
-  pfForm.note = $('#pfNote')?.value ?? pfForm.note;
+  for (const [k, id] of [['sym', 'pfSym'], ['qty', 'pfQty'], ['cost', 'pfCost'], ['date', 'pfDate'], ['fee', 'pfFee'], ['note', 'pfNote']]) {
+    const el = $('#' + id);
+    if (el) pfForm[k] = k === 'sym' ? el.value.trim().toUpperCase() : el.value;
+  }
 }
+function txReadForm() {
+  if (!txForm || !$('#txForm')) return;
+  for (const [k, id] of [['date', 'txDate'], ['qty', 'txQty'], ['price', 'txPrice'], ['fee', 'txFee']]) { const el = $('#' + id); if (el) txForm[k] = el.value; }
+}
+const currentPrice = p => { const q = pfQuote(p); return q ? trNum(q.last) : ''; };
 function pfOpen(cat, sym) {
-  pfForm = { cat, sym: sym || (cat === 'emtia' ? 'XAU' : ''), qty: '', cost: '', date: '', note: '' };
-  if (sym && cat !== 'emtia' && BY.get(sym)) pfForm.cost = String(BY.get(sym).last).replace('.', ',');
-  if (cat === 'emtia' && DATA.assets?.[pfForm.sym]) pfForm.cost = DATA.assets[pfForm.sym].last.toFixed(2).replace('.', ',');
+  txForm = null;
+  pfForm = { cat, sym: sym || (cat === 'emtia' ? 'XAU' : ''), qty: '', cost: '', date: todayIso(), fee: '', note: '' };
+  if (pfForm.sym) pfForm.cost = currentPrice(pfForm);
+}
+function txOpen(type, pid) {
+  pfForm = null;
+  const p = state.portfolio.find(x => x.id === pid);
+  txForm = { pid, type, date: todayIso(), qty: '', price: p ? currentPrice(p) : '', fee: '' };
 }
 
 /* ============================================================
@@ -1105,23 +1207,40 @@ view.addEventListener('click', e => {
   if (d.msclose) { closeMs(); return; }
   // Portföy
   if (d.pfaddsym) { pfOpen('temettu', d.pfaddsym); pfDelArmed = null; location.hash = '#/portfoy'; return; }
-  if (d.pfadd) { pfOpen(d.pfadd); pfDelArmed = null; renderPortfolio(); $('#pfSym')?.focus(); return; }
+  if (d.pfadd) { pfOpen(d.pfadd); pfDelArmed = null; renderPortfolio(); window.scrollTo(0, 0); $('#pfSym')?.focus(); return; }
   if (d.pfcat) {
     pfReadForm();
     const wasAsset = pfForm.cat === 'emtia', nowAsset = d.pfcat === 'emtia';
     pfForm.cat = d.pfcat;
-    if (wasAsset !== nowAsset) { pfForm.sym = nowAsset ? 'XAU' : ''; pfForm.cost = nowAsset ? (DATA.assets?.XAU?.last.toFixed(2).replace('.', ',') || '') : ''; }
+    if (!pfForm.id && wasAsset !== nowAsset) { pfForm.sym = nowAsset ? 'XAU' : ''; pfForm.cost = nowAsset ? currentPrice(pfForm) : ''; }
     renderPortfolio(); return;
   }
   if (d.pfcancel) { pfForm = null; renderPortfolio(); return; }
   if (d.pfedit) {
     const p = state.portfolio.find(x => x.id === d.pfedit);
-    if (p) pfForm = { ...p, qty: String(p.qty).replace('.', ','), cost: String(p.cost).replace('.', ',') };
+    if (p) { txForm = null; pfForm = { id: p.id, cat: p.cat, sym: p.sym, note: p.note || '' }; }
     pfDelArmed = null; renderPortfolio(); window.scrollTo(0, 0); return;
   }
+  if (d.pftx) { const [type, pid] = d.pftx.split(':'); txOpen(type, pid); pfDelArmed = null; renderPortfolio(); window.scrollTo(0, 0); $('#txQty')?.focus(); return; }
+  if (d.txtype) { txReadForm(); txForm.type = d.txtype; renderPortfolio(); return; }
+  if (d.txall) { txReadForm(); const p = state.portfolio.find(x => x.id === txForm.pid); txForm.qty = trNum(pfCalc(p).qty); renderPortfolio(); return; }
+  if (d.txcancel) { txForm = null; renderPortfolio(); return; }
+  if (d.pfhist) { pfHist.has(d.pfhist) ? pfHist.delete(d.pfhist) : pfHist.add(d.pfhist); pfDelArmed = null; renderPortfolio(); return; }
   if (d.pfdel) {
     if (pfDelArmed !== d.pfdel) { pfDelArmed = d.pfdel; renderPortfolio(); return; } // ilk dokunuş: onay iste
     state.portfolio = state.portfolio.filter(x => x.id !== d.pfdel); pfDelArmed = null; persist(); renderPortfolio(); return;
+  }
+  if (d.txdel) {
+    const [pid, tid] = d.txdel.split(':');
+    if (pfDelArmed !== tid) { pfDelArmed = tid; renderPortfolio(); return; }
+    const p = state.portfolio.find(x => x.id === pid);
+    if (p) {
+      const rest = { ...p, txs: p.txs.filter(t => t.id !== tid) };
+      const c = pfCalc(rest);
+      if (c.oversold) { pfDelArmed = null; renderPortfolio(); alertMsg(`Bu alım silinirse ${c.oversold.date ? fmt.date(c.oversold.date) + ' tarihli' : 'bir'} satış elde olandan fazla olur. Önce o satışı silin.`); return; }
+      p.txs = rest.txs;
+    }
+    pfDelArmed = null; persist(); renderPortfolio(); return;
   }
   if (b.id === 'saveBtn') { savingOpen = true; renderScreener(); $('#saveName')?.focus(); return; }
   if (d.cancelsave) { savingOpen = false; renderScreener(); return; }
@@ -1160,10 +1279,7 @@ view.addEventListener('change', e => {
     state[k] = e.target.checked ? [...new Set([...state[k], v])] : state[k].filter(x => x !== v);
     persist(); refreshResults(); return;
   }
-  if (e.target.id === 'pfSym' && pfForm?.cat === 'emtia') {
-    pfReadForm(); pfForm.cost = pfForm.sym === 'TRY' ? '' : (DATA.assets?.[pfForm.sym]?.last.toFixed(2).replace('.', ',') || '');
-    renderPortfolio(); return;
-  }
+  if (e.target.id === 'pfSym' && pfForm?.cat === 'emtia') { pfReadForm(); pfForm.cost = pfForm.sym === 'TRY' ? '' : currentPrice(pfForm); renderPortfolio(); return; }
   if (e.target.id === 'hideTedbir') { state.hideTedbir = e.target.checked; persist(); renderScreener(); return; }
   const row = e.target.closest('.frow');
   if (!row) return;
@@ -1198,14 +1314,37 @@ view.addEventListener('submit', e => {
   if (e.target.id === 'pfForm') {
     e.preventDefault(); pfReadForm();
     const f = pfForm, asset = f.cat === 'emtia', msg = $('#pfMsg');
-    const qty = num(f.qty), cost = asset && f.sym === 'TRY' ? 1 : num(f.cost);
+    if (f.id) { // yalnızca kategori ve not
+      const p = state.portfolio.find(x => x.id === f.id);
+      if (p) { p.cat = f.cat; p.note = (f.note || '').trim() || null; }
+      pfForm = null; persist(); renderPortfolio(); return;
+    }
+    const qty = num(f.qty), price = asset && f.sym === 'TRY' ? 1 : num(f.cost), fee = f.fee ? num(f.fee) : 0;
     if (!asset && !BY.has(f.sym)) { msg.textContent = `"${f.sym}" kodunda hisse bulunamadı.`; return; }
     if (!(qty > 0)) { msg.textContent = 'Miktar sıfırdan büyük bir sayı olmalı.'; return; }
-    if (!(cost > 0)) { msg.textContent = 'Maliyet sıfırdan büyük bir sayı olmalı.'; return; }
-    const pos = { id: f.id || pfId(), cat: f.cat, sym: f.sym, qty, cost, date: f.date || null, note: (f.note || '').trim() || null };
-    const i = state.portfolio.findIndex(x => x.id === pos.id);
-    if (i >= 0) state.portfolio[i] = pos; else state.portfolio.push(pos);
+    if (!(price > 0)) { msg.textContent = 'Fiyat sıfırdan büyük bir sayı olmalı.'; return; }
+    if (!(fee >= 0)) { msg.textContent = 'Komisyon geçerli bir sayı olmalı.'; return; }
+    const tx = { id: pfId(), type: 'buy', date: f.date || null, qty, price, fee };
+    const existing = state.portfolio.find(x => x.cat === f.cat && x.sym === f.sym);
+    if (existing) { existing.txs.push(tx); if (f.note?.trim()) existing.note = f.note.trim(); }
+    else state.portfolio.push({ id: pfId(), cat: f.cat, sym: f.sym, note: (f.note || '').trim() || null, txs: [tx] });
     pfForm = null; persist(); renderPortfolio(); return;
+  }
+  if (e.target.id === 'txForm') {
+    e.preventDefault(); txReadForm();
+    const f = txForm, p = state.portfolio.find(x => x.id === f.pid), msg = $('#txMsg');
+    if (!p) { txForm = null; renderPortfolio(); return; }
+    const fixed = isAsset(p) && p.sym === 'TRY';
+    const qty = num(f.qty), price = fixed ? 1 : num(f.price), fee = f.fee ? num(f.fee) : 0;
+    if (!f.date) { msg.textContent = 'Tarih girin.'; return; }
+    if (!(qty > 0)) { msg.textContent = 'Miktar sıfırdan büyük bir sayı olmalı.'; return; }
+    if (!(price > 0)) { msg.textContent = 'Fiyat sıfırdan büyük bir sayı olmalı.'; return; }
+    if (!(fee >= 0)) { msg.textContent = 'Komisyon geçerli bir sayı olmalı.'; return; }
+    const tx = { id: pfId(), type: f.type, date: f.date, qty, price, fee };
+    const c = pfCalc(p, tx);
+    if (c.oversold) { msg.textContent = `${c.oversold.date ? fmt.date(c.oversold.date) : 'Bu'} tarihinde elinizde ${qtyFmt(c.oversold.have)} ${unitOf(p)} var; daha fazlası satılamaz.`; return; }
+    p.txs.push(tx);
+    txForm = null; persist(); renderPortfolio(); return;
   }
   if (e.target.id !== 'saveForm') return;
   e.preventDefault();
