@@ -26,7 +26,7 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
   sonunda eldeki adetle) tespit edilir, net tutar ve hedef (TL bakiye / portföy dışı) kullanıcıya onaylatılır.
   Kategoriler: *Temettü* (verim, maliyete göre verim, yıllık beklenen temettü,
   sıradaki temettü), *Trend / Momentum* (Supertrend, trend, RSI; trend bozulunca "Çıkış sinyali"),
-  *Emtia / İtibari* (gram altın, gram gümüş, TL, dolar, euro). Toplam değer, kâr/zarar, günlük değişim,
+  *Emtia / İtibari* (gram altın, gram gümüş, TL, dolar, euro), *Kripto* (BTC, ETH, SOL, BNB, USDT, USDC). Toplam değer, kâr/zarar, günlük değişim,
   kategori dağılımı. Veriler yalnızca cihazda saklanır.
 - **Bulut senkronizasyonu (isteğe bağlı):** portföy, izleme listesi ve kayıtlı taramalar kullanıcının kendi özel
   GitHub Gist'inde tutulur; erişim anahtarı (yalnızca `gist` yetkisi) sadece cihazın tarayıcısında saklanır.
@@ -41,7 +41,7 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
 |---|---|---|
 | Fiyat, hacim, temettü (5 yıl, günlük; bölünmelere göre düzeltilmiş) | Yahoo Finance (~15 dk gecikmeli) | seans boyunca saatte bir |
 | Pazar (Yıldız/Ana/Alt/YİP) | KAP Pazarlar sayfası | günde bir |
-| Dolar, euro, gram altın, gram gümüş (TL) | Yahoo Finance (USDTRY, EURTRY, ons altın/gümüş × kur) | seans boyunca saatte bir |
+| Dolar, euro, gram altın, gram gümüş, kripto (TL) | Yahoo Finance (USDTRY, EURTRY, ons altın/gümüş × kur, BTC-USD vb. × kur) | seans boyunca saatte bir |
 | Tedbirler | GCM Yatırım tedbir listesi + `scripts/tedbirler.csv` | her çalışmada |
 | Açıklanmış (ödenmemiş) temettüler, net | temettuhisseleri.com temettü tarihleri sayfası | 6 saatte bir |
 | Endeks bileşenleri (BIST 30/50/100/TÜM) | Borsa İstanbul resmi dosyası | her çalışmada |

@@ -582,6 +582,7 @@ def fetch_upcoming_dividends(cache_dir: Path, max_age_h: float = 6) -> tuple[dic
 
 
 OZ_TO_GRAM = 31.1034768
+CRYPTO = ("BTC", "ETH", "SOL", "BNB", "USDT", "USDC")
 
 
 def fetch_assets() -> dict[str, dict]:
@@ -589,12 +590,12 @@ def fetch_assets() -> dict[str, dict]:
     Altın/gümüş: uluslararası ons fiyatı (vadeli) × USD/TRY / 31,1035 — Kapalıçarşı fiyatından biraz farklıdır."""
     import yfinance as yf
 
-    syms = {"USD": "USDTRY=X", "EUR": "EURTRY=X", "GC": "GC=F", "SI": "SI=F"}
+    syms = {"USD": "USDTRY=X", "EUR": "EURTRY=X", "GC": "GC=F", "SI": "SI=F", **{c: f"{c}-USD" for c in CRYPTO}}
     try:
         d = yf.download(list(syms.values()), period="1mo", interval="1d", auto_adjust=False,
                         group_by="ticker", progress=False, threads=True)
         close = {k: d[v]["Close"].dropna() for k, v in syms.items()}
-        if any(len(c) < 2 for c in close.values()):
+        if any(len(close[k]) < 2 for k in ("USD", "EUR", "GC", "SI")):
             raise RuntimeError("eksik seri")
         usd = close["USD"]
         out = {"TRY": {"last": 1.0, "chg1d": 0.0}}
@@ -604,7 +605,16 @@ def fetch_assets() -> dict[str, dict]:
         for k, src in (("XAU", "GC"), ("XAG", "SI")):
             g = (close[src] * usd.reindex(close[src].index).ffill() / OZ_TO_GRAM).dropna()
             out[k] = {"last": float(g.iloc[-1]), "chg1d": pct(g.iloc[-1], g.iloc[-2]), "date": g.index[-1].strftime("%Y-%m-%d")}
-        print("Döviz/emtia: " + ", ".join(f"{k} {v['last']:.2f}" for k, v in out.items()), flush=True)
+        # Kripto: USD fiyatı × USD/TRY (kripto hafta sonu da işlem görür; kur son iş gününden taşınır)
+        for k in CRYPTO:
+            c = close.get(k)
+            if c is None or len(c) < 2:
+                continue
+            t = (c * usd.reindex(c.index).ffill()).dropna()
+            if len(t) >= 2:
+                out[k] = {"last": float(t.iloc[-1]), "chg1d": pct(c.iloc[-1], c.iloc[-2]), "usd": float(c.iloc[-1]),
+                          "date": t.index[-1].strftime("%Y-%m-%d")}
+        print("Döviz/emtia/kripto: " + ", ".join(f"{k} {v['last']:.2f}" for k, v in out.items()), flush=True)
         return out
     except Exception as e:
         print(f"  Döviz/emtia alınamadı ({e}).", flush=True)
