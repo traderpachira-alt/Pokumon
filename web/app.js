@@ -944,6 +944,76 @@ function exitSignals(s) {
 const qtyFmt = q => Number.isInteger(q) ? F0.format(q) : F2.format(q);
 const signed = x => !ok(x) ? '—' : (x > 0 ? '+' : '') + fmt.big(x);
 
+/* --- TL nakit akışı ---
+   TL bakiye = Emtia / İtibari'deki "Türk lirası" pozisyonu. Bir alım TL'den fonlanırsa ya da bir satışın geliri
+   TL'ye aktarılırsa, nakit pozisyonunda karşılık işlemi oluşur. İki işlem birbirine bağlıdır (link) ve birlikte silinir.
+   flow: 'cash' = TL bakiyeden/TL bakiyeye, 'ext' (ya da boş) = portföy dışından/dışına. */
+const isCash = p => p?.cat === 'emtia' && p?.sym === 'TRY';
+const CASH = () => state.portfolio.find(isCash);
+function ensureCash() {
+  let c = CASH();
+  if (!c) { c = { id: pfId(), cat: 'emtia', sym: 'TRY', note: null, txs: [] }; state.portfolio.push(c); }
+  return c;
+}
+const cashBal = () => { const c = CASH(); return c ? pfCalc(c).qty : 0; };
+const txAmount = t => t.type === 'buy' ? t.qty * t.price + (t.fee || 0) : t.qty * t.price - (t.fee || 0);
+const tl = x => fmt.big(x) + ' ₺';
+// İşlemi uygular; sorun varsa açıklama metni döner (hiçbir şey değişmez), yoksa null.
+function applyTx(p, tx, flow) {
+  const own = pfCalc(p, tx);
+  if (own.oversold) return `${own.oversold.date ? fmt.date(own.oversold.date) : 'Bu'} tarihinde elinizde ${qtyFmt(own.oversold.have)} ${unitOf(p)} var; daha fazlası satılamaz.`;
+  if (isCash(p) || flow !== 'cash') { if (!isCash(p)) tx.flow = 'ext'; p.txs.push(tx); return null; }
+  const amount = txAmount(tx);
+  const ctx = { id: pfId(), type: tx.type === 'buy' ? 'sell' : 'buy', date: tx.date, qty: amount, price: 1, fee: 0, link: tx.id, src: p.id };
+  if (tx.type === 'buy') {
+    const cash = CASH(), cc = cash ? pfCalc(cash, ctx) : { oversold: { have: 0, date: tx.date } };
+    if (cc.oversold) return `TL bakiye yetersiz: ${cc.oversold.date ? fmt.date(cc.oversold.date) + ' tarihinde ' : ''}${tl(cc.oversold.have)} var, ${tl(amount)} gerekiyor. "Dışarıdan" seçin ya da önce para yatırın.`;
+  } else if (amount <= 0) return 'Komisyon satış tutarından büyük olamaz.';
+  tx.flow = 'cash'; tx.link = ctx.id;
+  p.txs.push(tx); ensureCash().txs.push(ctx);
+  return null;
+}
+// İşlemi (ve TL'deki karşılığını) siler; sorun varsa açıklama döner.
+function removeTx(p, tid) {
+  const t = p.txs.find(x => x.id === tid);
+  if (!t) return null;
+  if (t.src) { const sp = state.portfolio.find(x => x.id === t.src); return `Bu kayıt ${sp ? assetName(sp) : 'başka bir'} işleminden otomatik oluştu; o işlemi silin.`; }
+  const plan = [[p, p.txs.filter(x => x.id !== tid)]];
+  const cash = CASH();
+  if (t.link && cash && cash !== p) plan.push([cash, cash.txs.filter(x => x.id !== t.link)]);
+  for (const [pos, txs] of plan) {
+    const c = pfCalc({ ...pos, txs });
+    if (c.oversold) return isCash(pos)
+      ? `Bu işlem silinirse TL bakiye ${c.oversold.date ? fmt.date(c.oversold.date) + ' tarihinde ' : ''}eksiye düşer (sonraki alımlar bu parayla yapılmış). Önce o alımları silin.`
+      : `Bu işlem silinirse ${c.oversold.date ? fmt.date(c.oversold.date) + ' tarihli ' : ''}satış elde olandan fazla olur. Önce o satışı silin.`;
+  }
+  for (const [pos, txs] of plan) pos.txs = txs;
+  return null;
+}
+function removePosition(pid) {
+  const p = state.portfolio.find(x => x.id === pid);
+  if (!p) return null;
+  if (isCash(p) && p.txs.some(t => t.src)) return 'TL bakiyede başka varlıkların alım/satımından gelen kayıtlar var. Önce o işlemleri silin.';
+  const cash = CASH();
+  if (cash && !isCash(p)) {
+    const txs = cash.txs.filter(t => t.src !== p.id), c = pfCalc({ ...cash, txs });
+    if (c.oversold) return `${assetName(p)} silinirse TL bakiye eksiye düşer (satış gelirleri başka alımlarda kullanılmış). Önce o alımları silin.`;
+    cash.txs = txs;
+  }
+  state.portfolio = state.portfolio.filter(x => x.id !== pid);
+  return null;
+}
+// Portföye dışarıdan giren (+) ve çıkan (−) para: net yatırılan
+function netInvested() {
+  let net = 0;
+  for (const p of state.portfolio) for (const t of p.txs) {
+    if (isCash(p)) { if (!t.src) net += t.type === 'buy' ? t.qty : -t.qty; continue; }
+    if (t.flow === 'cash') continue;
+    net += t.type === 'buy' ? txAmount(t) : -txAmount(t);
+  }
+  return net;
+}
+
 function alertMsg(text) {
   const el = document.createElement('div'); el.className = 'updatebar'; el.textContent = text; el.setAttribute('role', 'alert');
   document.body.appendChild(el); setTimeout(() => el.remove(), 5000);
@@ -954,15 +1024,15 @@ function renderPortfolio() {
   document.title = 'Portföy · Tahta';
   const all = pfRows(), rows = all.filter(r => r.open), closed = all.filter(r => !r.open && r.c.txs.length);
   const tot = rows.reduce((a, r) => ({ value: a.value + (r.value || 0), cost: a.cost + r.c.cost, day: a.day + (r.day || 0) }), { value: 0, cost: 0, day: 0 });
-  const unreal = tot.value - tot.cost, realized = all.reduce((a, r) => a + r.c.realized, 0);
+  const unreal = tot.value - tot.cost, realized = all.reduce((a, r) => a + r.c.realized, 0), inv = netInvested();
   const divYear = rows.filter(r => r.s && !isAsset(r.p)).reduce((a, r) => a + (r.s.divTtm || 0) * r.c.qty, 0);
   const byCat = Object.fromEntries(Object.keys(PF_CATS).map(c => [c, rows.filter(r => r.p.cat === c)]));
   const catVal = c => byCat[c].reduce((a, r) => a + (r.value || 0), 0);
   const share = r => tot.value ? (r.value || 0) / tot.value : null;
 
   const actions = r => `<td class="txt act">
-    <button type="button" class="ic buy" data-pftx="buy:${r.p.id}" title="Alım ekle">Al</button>
-    <button type="button" class="ic sell" data-pftx="sell:${r.p.id}" title="Satış ekle">Sat</button>
+    <button type="button" class="ic buy" data-pftx="buy:${r.p.id}" title="${isCash(r.p) ? 'Para yatır' : 'Alım ekle'}">${isCash(r.p) ? 'Yatır' : 'Al'}</button>
+    <button type="button" class="ic sell" data-pftx="sell:${r.p.id}" title="${isCash(r.p) ? 'Para çek' : 'Satış ekle'}">${isCash(r.p) ? 'Çek' : 'Sat'}</button>
     <button type="button" class="ic" data-pfhist="${r.p.id}" aria-expanded="${pfHist.has(r.p.id)}" title="İşlem geçmişi">İşlemler <span class="muted">${r.c.txs.length}</span></button>
     <button type="button" class="ic" data-pfedit="${r.p.id}" aria-label="Kategori / not düzenle">✎</button>
     <button type="button" class="ic${pfDelArmed === r.p.id ? ' armed' : ''}" data-pfdel="${r.p.id}" aria-label="Pozisyonu sil">${pfDelArmed === r.p.id ? 'Sil?' : '×'}</button></td>`;
@@ -998,13 +1068,16 @@ function renderPortfolio() {
   view.innerHTML = `
   <section class="dhead">
     <div><h1>Portföy</h1><p class="sub">Veriler yalnızca bu cihazda saklanır; başka cihaza <a href="#/aktar">Aktar</a> ile taşıyabilirsiniz.</p></div>
-    <button type="button" class="btn primary" data-pfadd="temettu">+ Varlık ekle</button>
+    <div class="row"><button type="button" class="btn" data-cashflow="buy">± Para yatır / çek</button><button type="button" class="btn primary" data-pfadd="temettu">+ Varlık ekle</button></div>
   </section>
   ${pfForm ? pfFormHtml() : ''}
   ${txForm ? txFormHtml() : ''}
   ${all.length ? `
   <div class="pfsum">
     <div class="ret"><span>Toplam değer</span><b>${fmt.big(tot.value)} ₺</b></div>
+    <div class="ret"><span title="Emtia / İtibari'deki Türk lirası bakiyesi">Nakit (TL)</span><b>${tl(cashBal())}</b></div>
+    <div class="ret"><span title="Dışarıdan yatırılan − dışarı çekilen para">Net yatırılan</span><b>${tl(inv)}</b></div>
+    <div class="ret"><span title="Toplam değer − net yatırılan (gerçekleşen ve açık K/Z birlikte; temettüler TL bakiyeye girildiyse dahil)">Toplam getiri</span><b class="${cls(tot.value - inv)}">${signed(tot.value - inv)} ₺ · ${fmt.pct(inv > 0 ? (tot.value - inv) / inv : null)}</b></div>
     <div class="ret"><span title="Açık pozisyonların ortalama maliyet × adet toplamı">Maliyet</span><b>${fmt.big(tot.cost)} ₺</b></div>
     <div class="ret"><span title="Elde tutulan varlıkların kâr/zararı">Açık K/Z</span><b class="${cls(unreal)}">${signed(unreal)} ₺ · ${fmt.pct(tot.cost ? unreal / tot.cost : null)}</b></div>
     <div class="ret"><span title="Satışlardan gerçekleşen kâr/zarar (ortalama maliyet yöntemi, komisyon dahil)">Gerçekleşen K/Z</span><b class="${cls(realized)}">${signed(realized)} ₺</b></div>
@@ -1035,6 +1108,11 @@ function renderPortfolio() {
   <p class="muted" style="font-size:12px">Fiyatlar gecikmelidir. Gerçekleşen K/Z ortalama maliyet yöntemiyle hesaplanır; temettüler dahil değildir. Altın ve gümüş gram fiyatı uluslararası ons fiyatı × dolar kurundan hesaplanır; Kapalıçarşı ve banka fiyatlarından farklı olabilir.</p>`;
 }
 
+const txLabel = (p, t) => isCash(p) ? (t.src ? (t.type === 'buy' ? 'Satış geliri' : 'Alım ödemesi') : (t.type === 'buy' ? 'Yatırma' : 'Çekme')) : (t.type === 'buy' ? 'Alım' : 'Satış');
+function txFlowNote(p, t) {
+  if (isCash(p)) { const sp = t.src && state.portfolio.find(x => x.id === t.src); return sp ? ` <small class="muted">${esc(assetName(sp))}</small>` : ''; }
+  return t.flow === 'cash' ? ` <small class="muted">${t.type === 'buy' ? 'TL bakiyeden' : '→ TL bakiye'}</small>` : '';
+}
 function txTable(r) {
   const u = unitOf(r.p);
   // Her satışın o anki gerçekleşen K/Z'si için sırayla yeniden hesapla
@@ -1047,10 +1125,10 @@ function txTable(r) {
   });
   return `<div class="txbox"><table class="grid mini"><thead><tr><th class="tk">Tarih</th><th>İşlem</th><th>Miktar</th><th>Fiyat ₺</th><th>Komisyon ₺</th><th>Tutar ₺</th><th title="Satışta gerçekleşen kâr/zarar">K/Z ₺</th><th>Sonra elde</th><th></th></tr></thead><tbody>
     ${lines.slice().reverse().map(({ t, res, after }) => `<tr><td class="tk">${t.date ? fmt.date(t.date) : '<span class="muted">tarihsiz</span>'}</td>
-      <td class="txt"><span class="chip ${t.type === 'buy' ? 'up' : 'down'}">${t.type === 'buy' ? 'Alım' : 'Satış'}</span></td>
+      <td class="txt"><span class="chip ${t.type === 'buy' ? 'up' : 'down'}">${txLabel(r.p, t)}</span>${txFlowNote(r.p, t)}</td>
       <td>${qtyFmt(t.qty)} <span class="muted">${u}</span></td><td>${fmt.price(t.price)}</td><td>${t.fee ? fmt.price(t.fee) : '—'}</td><td>${fmt.big(t.qty * t.price)}</td>
       <td class="${cls(res)}">${res == null ? '—' : signed(res)}</td><td>${qtyFmt(after)}</td>
-      <td class="txt act"><button type="button" class="ic${pfDelArmed === t.id ? ' armed' : ''}" data-txdel="${r.p.id}:${t.id}" aria-label="İşlemi sil">${pfDelArmed === t.id ? 'Sil?' : '×'}</button></td></tr>`).join('')}
+      <td class="txt act">${t.src ? '<span class="muted" title="Otomatik oluştu; kaynak işlemi silin">🔗</span>' : `<button type="button" class="ic${pfDelArmed === t.id ? ' armed' : ''}" data-txdel="${r.p.id}:${t.id}" aria-label="İşlemi sil">${pfDelArmed === t.id ? 'Sil?' : '×'}</button>`}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
 
@@ -1068,27 +1146,41 @@ function pfFormHtml() {
       ${edit ? '' : `<label>${asset ? (ASSETS[f.sym]?.qtyLabel || 'Miktar') : 'Adet'}<input id="pfQty" inputmode="decimal" value="${esc(f.qty ?? '')}" required></label>
       ${asset && f.sym === 'TRY' ? '' : `<label>Alış fiyatı (₺ / ${asset ? ASSETS[f.sym]?.unit : 'hisse'})<input id="pfCost" inputmode="decimal" value="${esc(f.cost ?? '')}" required></label>`}
       <label>Alış tarihi<input id="pfDate" type="date" value="${f.date || ''}"></label>
-      <label>Komisyon (₺) <small class="muted">(isteğe bağlı)</small><input id="pfFee" inputmode="decimal" value="${esc(f.fee ?? '')}"></label>`}
+      <label>Komisyon (₺) <small class="muted">(isteğe bağlı)</small><input id="pfFee" inputmode="decimal" value="${esc(f.fee ?? '')}"></label>
+      ${asset && f.sym === 'TRY' ? '' : (sell => `<label>${sell ? 'Satış geliri' : 'Para nereden?'}<select id="pfFlow" class="btn">
+        ${sell ? `<option value="cash"${f.flow !== 'ext' ? ' selected' : ''}>TL bakiyeye ekle</option><option value="ext"${f.flow === 'ext' ? ' selected' : ''}>Portföy dışına (çekildi)</option>`
+               : `<option value="cash"${f.flow === 'cash' ? ' selected' : ''}>TL bakiyeden (${tl(cashBal())})</option><option value="ext"${f.flow !== 'cash' ? ' selected' : ''}>Dışarıdan (yeni para)</option>`}</select></label>`)(false)}`}
       <label class="wide">Not <small class="muted">(isteğe bağlı)</small><input id="pfNote" maxlength="80" value="${esc(f.note || '')}"></label>
     </div>
     ${edit ? '' : '<p class="muted" style="font-size:12px;margin:0">Aynı kategoride bu varlık zaten varsa yeni alım olarak eklenir ve ortalama maliyet güncellenir.</p>'}
     <div class="row"><button class="btn primary">${edit ? 'Kaydet' : 'Ekle'}</button><button type="button" class="btn" data-pfcancel="1">İptal</button><span id="pfMsg" class="down" role="status"></span></div>
   </form>`;
 }
+function txPreview(f) {
+  const q = num(f.qty), pr = num(f.price), fee = f.fee ? num(f.fee) : 0;
+  if (!(q > 0) || !(pr > 0)) return 'Tutar, miktar ve fiyat girilince hesaplanır.';
+  const amt = f.type === 'buy' ? q * pr + (fee || 0) : q * pr - (fee || 0);
+  return f.type === 'buy' ? `Ödenecek: <b>${tl(amt)}</b>${fee ? ' (komisyon dahil)' : ''}${f.flow === 'cash' ? ` · alım sonrası TL bakiye: ${tl(cashBal() - amt)}` : ''}`
+                          : `Elinize geçecek: <b>${tl(amt)}</b>${fee ? ' (komisyon düşülmüş)' : ''}${f.flow !== 'ext' ? ` · satış sonrası TL bakiye: ${tl(cashBal() + amt)}` : ''}`;
+}
 function txFormHtml() {
   const f = txForm, p = state.portfolio.find(x => x.id === f.pid);
   if (!p) return '';
   const c = pfCalc(p), sell = f.type === 'sell', u = unitOf(p), fixed = isAsset(p) && p.sym === 'TRY';
   return `<form class="panel pfform ${sell ? 'sellform' : ''}" id="txForm">
-    <h2>${esc(assetName(p))} · ${sell ? 'Satış' : 'Alım'} <span class="muted">· elde ${qtyFmt(c.qty)} ${u}${c.qty ? `, ort. maliyet ${fmt.price(c.avg)} ₺` : ''}</span></h2>
-    <div class="seg" role="radiogroup" aria-label="İşlem türü"><button type="button" data-txtype="buy" aria-pressed="${!sell}">Alım</button><button type="button" data-txtype="sell" aria-pressed="${sell}">Satış</button></div>
+    <h2>${fixed ? 'TL bakiye · para yatır / çek' : `${esc(assetName(p))} · ${sell ? 'Satış' : 'Alım'}`} <span class="muted">· ${fixed ? `bakiye ${tl(c.qty)}` : `elde ${qtyFmt(c.qty)} ${u}${c.qty ? `, ort. maliyet ${fmt.price(c.avg)} ₺` : ''}`}</span></h2>
+    <div class="seg" role="radiogroup" aria-label="İşlem türü"><button type="button" data-txtype="buy" aria-pressed="${!sell}">${fixed ? 'Para yatır' : 'Alım'}</button><button type="button" data-txtype="sell" aria-pressed="${sell}">${fixed ? 'Para çek' : 'Satış'}</button></div>
     <div class="pfgrid">
       <label>Tarih<input id="txDate" type="date" value="${f.date || ''}" required></label>
       <label>${isAsset(p) ? (ASSETS[p.sym]?.qtyLabel || 'Miktar') : 'Adet'}${sell && c.qty ? ` <button type="button" class="linkbtn" data-txall="1">tümü (${qtyFmt(c.qty)})</button>` : ''}<input id="txQty" inputmode="decimal" value="${esc(f.qty ?? '')}" required></label>
       ${fixed ? '' : `<label>${sell ? 'Satış' : 'Alış'} fiyatı (₺ / ${isAsset(p) ? u : 'hisse'})<input id="txPrice" inputmode="decimal" value="${esc(f.price ?? '')}" required></label>`}
-      <label>Komisyon (₺) <small class="muted">(isteğe bağlı)</small><input id="txFee" inputmode="decimal" value="${esc(f.fee ?? '')}"></label>
+      ${fixed ? '' : `<label>Komisyon (₺) <small class="muted">(isteğe bağlı)</small><input id="txFee" inputmode="decimal" value="${esc(f.fee ?? '')}"></label>
+      <label>${sell ? 'Satış geliri' : 'Para nereden?'}<select id="txFlow" class="btn">
+        ${sell ? `<option value="cash"${f.flow !== 'ext' ? ' selected' : ''}>TL bakiyeye ekle</option><option value="ext"${f.flow === 'ext' ? ' selected' : ''}>Portföy dışına (çekildi)</option>`
+               : `<option value="cash"${f.flow === 'cash' ? ' selected' : ''}>TL bakiyeden (${tl(cashBal())})</option><option value="ext"${f.flow !== 'cash' ? ' selected' : ''}>Dışarıdan (yeni para)</option>`}</select></label>`}
     </div>
-    <div class="row"><button class="btn primary">${sell ? 'Satışı kaydet' : 'Alımı kaydet'}</button><button type="button" class="btn" data-txcancel="1">İptal</button><span id="txMsg" class="down" role="status"></span></div>
+    ${fixed ? '' : `<p class="muted" id="txAmt" style="font-size:12px;margin:0">${txPreview(f)}</p>`}
+    <div class="row"><button class="btn primary">${fixed ? (sell ? 'Çekimi kaydet' : 'Yatırmayı kaydet') : sell ? 'Satışı kaydet' : 'Alımı kaydet'}</button><button type="button" class="btn" data-txcancel="1">İptal</button><span id="txMsg" class="down" role="status"></span></div>
   </form>`;
 }
 // Türkçe sayı girişi: "1.234,56" / "1234,56" / "1.000" (binlik) / "4.95" (virgül yoksa ve noktadan sonra 3 hane değilse ondalık)
@@ -1102,25 +1194,25 @@ const num = v => {
 const trNum = x => String(+x.toFixed(4)).replace('.', ',');
 function pfReadForm() {
   if (!pfForm || !$('#pfForm')) return;
-  for (const [k, id] of [['sym', 'pfSym'], ['qty', 'pfQty'], ['cost', 'pfCost'], ['date', 'pfDate'], ['fee', 'pfFee'], ['note', 'pfNote']]) {
+  for (const [k, id] of [['sym', 'pfSym'], ['qty', 'pfQty'], ['cost', 'pfCost'], ['date', 'pfDate'], ['fee', 'pfFee'], ['note', 'pfNote'], ['flow', 'pfFlow']]) {
     const el = $('#' + id);
     if (el) pfForm[k] = k === 'sym' ? el.value.trim().toUpperCase() : el.value;
   }
 }
 function txReadForm() {
   if (!txForm || !$('#txForm')) return;
-  for (const [k, id] of [['date', 'txDate'], ['qty', 'txQty'], ['price', 'txPrice'], ['fee', 'txFee']]) { const el = $('#' + id); if (el) txForm[k] = el.value; }
+  for (const [k, id] of [['date', 'txDate'], ['qty', 'txQty'], ['price', 'txPrice'], ['fee', 'txFee'], ['flow', 'txFlow']]) { const el = $('#' + id); if (el) txForm[k] = el.value; }
 }
 const currentPrice = p => { const q = pfQuote(p); return q ? trNum(q.last) : ''; };
 function pfOpen(cat, sym) {
   txForm = null;
-  pfForm = { cat, sym: sym || (cat === 'emtia' ? 'XAU' : ''), qty: '', cost: '', date: todayIso(), fee: '', note: '' };
+  pfForm = { cat, sym: sym || (cat === 'emtia' ? 'XAU' : ''), qty: '', cost: '', date: todayIso(), fee: '', note: '', flow: cashBal() > 0 ? 'cash' : 'ext' };
   if (pfForm.sym) pfForm.cost = currentPrice(pfForm);
 }
 function txOpen(type, pid) {
   pfForm = null;
   const p = state.portfolio.find(x => x.id === pid);
-  txForm = { pid, type, date: todayIso(), qty: '', price: p ? currentPrice(p) : '', fee: '' };
+  txForm = { pid, type, date: todayIso(), qty: '', price: p ? currentPrice(p) : '', fee: '', flow: type === 'sell' || cashBal() > 0 ? 'cash' : 'ext' };
 }
 
 /* ============================================================
@@ -1222,25 +1314,23 @@ view.addEventListener('click', e => {
     pfDelArmed = null; renderPortfolio(); window.scrollTo(0, 0); return;
   }
   if (d.pftx) { const [type, pid] = d.pftx.split(':'); txOpen(type, pid); pfDelArmed = null; renderPortfolio(); window.scrollTo(0, 0); $('#txQty')?.focus(); return; }
-  if (d.txtype) { txReadForm(); txForm.type = d.txtype; renderPortfolio(); return; }
+  if (d.txtype) { txReadForm(); if (txForm.type !== d.txtype) txForm.flow = d.txtype === 'sell' || cashBal() > 0 ? 'cash' : 'ext'; txForm.type = d.txtype; renderPortfolio(); return; }
   if (d.txall) { txReadForm(); const p = state.portfolio.find(x => x.id === txForm.pid); txForm.qty = trNum(pfCalc(p).qty); renderPortfolio(); return; }
-  if (d.txcancel) { txForm = null; renderPortfolio(); return; }
+  if (d.txcancel) { txForm = null; const c = CASH(); if (c && !c.txs.length) state.portfolio = state.portfolio.filter(x => x !== c); renderPortfolio(); return; }
   if (d.pfhist) { pfHist.has(d.pfhist) ? pfHist.delete(d.pfhist) : pfHist.add(d.pfhist); pfDelArmed = null; renderPortfolio(); return; }
+  if (d.cashflow) { ensureCash(); txOpen(d.cashflow, CASH().id); pfDelArmed = null; renderPortfolio(); window.scrollTo(0, 0); $('#txQty')?.focus(); return; }
   if (d.pfdel) {
     if (pfDelArmed !== d.pfdel) { pfDelArmed = d.pfdel; renderPortfolio(); return; } // ilk dokunuş: onay iste
-    state.portfolio = state.portfolio.filter(x => x.id !== d.pfdel); pfDelArmed = null; persist(); renderPortfolio(); return;
+    const err = removePosition(d.pfdel); pfDelArmed = null;
+    if (err) { renderPortfolio(); alertMsg(err); return; }
+    persist(); renderPortfolio(); return;
   }
   if (d.txdel) {
     const [pid, tid] = d.txdel.split(':');
     if (pfDelArmed !== tid) { pfDelArmed = tid; renderPortfolio(); return; }
-    const p = state.portfolio.find(x => x.id === pid);
-    if (p) {
-      const rest = { ...p, txs: p.txs.filter(t => t.id !== tid) };
-      const c = pfCalc(rest);
-      if (c.oversold) { pfDelArmed = null; renderPortfolio(); alertMsg(`Bu alım silinirse ${c.oversold.date ? fmt.date(c.oversold.date) + ' tarihli' : 'bir'} satış elde olandan fazla olur. Önce o satışı silin.`); return; }
-      p.txs = rest.txs;
-    }
-    pfDelArmed = null; persist(); renderPortfolio(); return;
+    const p = state.portfolio.find(x => x.id === pid), err = p ? removeTx(p, tid) : null; pfDelArmed = null;
+    if (err) { renderPortfolio(); alertMsg(err); return; }
+    persist(); renderPortfolio(); return;
   }
   if (b.id === 'saveBtn') { savingOpen = true; renderScreener(); $('#saveName')?.focus(); return; }
   if (d.cancelsave) { savingOpen = false; renderScreener(); return; }
@@ -1279,6 +1369,7 @@ view.addEventListener('change', e => {
     state[k] = e.target.checked ? [...new Set([...state[k], v])] : state[k].filter(x => x !== v);
     persist(); refreshResults(); return;
   }
+  if (e.target.id === 'txFlow') { txReadForm(); const el = $('#txAmt'); if (el) el.innerHTML = txPreview(txForm); return; }
   if (e.target.id === 'pfSym' && pfForm?.cat === 'emtia') { pfReadForm(); pfForm.cost = pfForm.sym === 'TRY' ? '' : currentPrice(pfForm); renderPortfolio(); return; }
   if (e.target.id === 'hideTedbir') { state.hideTedbir = e.target.checked; persist(); renderScreener(); return; }
   const row = e.target.closest('.frow');
@@ -1289,6 +1380,7 @@ view.addEventListener('change', e => {
 });
 // Değer yazarken anında süz (odak kaybolmasın diye yalnızca tablo ve sayaç yenilenir)
 view.addEventListener('input', e => {
+  if (e.target.closest?.('#txForm')) { txReadForm(); const el = $('#txAmt'); if (el) el.innerHTML = txPreview(txForm); }
   if (e.target.classList.contains('ms-q')) {
     const q = e.target.value.trim().toLocaleLowerCase('tr');
     e.target.closest('.ms').querySelectorAll('.ms-list label').forEach(l => { l.hidden = q && !l.textContent.toLocaleLowerCase('tr').includes(q); });
@@ -1319,31 +1411,34 @@ view.addEventListener('submit', e => {
       if (p) { p.cat = f.cat; p.note = (f.note || '').trim() || null; }
       pfForm = null; persist(); renderPortfolio(); return;
     }
-    const qty = num(f.qty), price = asset && f.sym === 'TRY' ? 1 : num(f.cost), fee = f.fee ? num(f.fee) : 0;
+    const cash = asset && f.sym === 'TRY';
+    const qty = num(f.qty), price = cash ? 1 : num(f.cost), fee = f.fee ? num(f.fee) : 0;
     if (!asset && !BY.has(f.sym)) { msg.textContent = `"${f.sym}" kodunda hisse bulunamadı.`; return; }
     if (!(qty > 0)) { msg.textContent = 'Miktar sıfırdan büyük bir sayı olmalı.'; return; }
     if (!(price > 0)) { msg.textContent = 'Fiyat sıfırdan büyük bir sayı olmalı.'; return; }
     if (!(fee >= 0)) { msg.textContent = 'Komisyon geçerli bir sayı olmalı.'; return; }
-    const tx = { id: pfId(), type: 'buy', date: f.date || null, qty, price, fee };
-    const existing = state.portfolio.find(x => x.cat === f.cat && x.sym === f.sym);
-    if (existing) { existing.txs.push(tx); if (f.note?.trim()) existing.note = f.note.trim(); }
-    else state.portfolio.push({ id: pfId(), cat: f.cat, sym: f.sym, note: (f.note || '').trim() || null, txs: [tx] });
+    const tx = { id: pfId(), type: 'buy', date: f.date || null, qty, price, fee: cash ? 0 : fee };
+    let pos = cash ? CASH() : state.portfolio.find(x => x.cat === f.cat && x.sym === f.sym);
+    const isNew = !pos;
+    if (isNew) pos = { id: pfId(), cat: f.cat, sym: f.sym, note: null, txs: [] };
+    const err = applyTx(pos, tx, cash ? 'ext' : f.flow);
+    if (err) { msg.textContent = err; return; }
+    if (isNew && !state.portfolio.includes(pos)) state.portfolio.push(pos);
+    if (f.note?.trim()) pos.note = f.note.trim();
     pfForm = null; persist(); renderPortfolio(); return;
   }
   if (e.target.id === 'txForm') {
     e.preventDefault(); txReadForm();
     const f = txForm, p = state.portfolio.find(x => x.id === f.pid), msg = $('#txMsg');
     if (!p) { txForm = null; renderPortfolio(); return; }
-    const fixed = isAsset(p) && p.sym === 'TRY';
-    const qty = num(f.qty), price = fixed ? 1 : num(f.price), fee = f.fee ? num(f.fee) : 0;
+    const fixed = isCash(p);
+    const qty = num(f.qty), price = fixed ? 1 : num(f.price), fee = !fixed && f.fee ? num(f.fee) : 0;
     if (!f.date) { msg.textContent = 'Tarih girin.'; return; }
     if (!(qty > 0)) { msg.textContent = 'Miktar sıfırdan büyük bir sayı olmalı.'; return; }
     if (!(price > 0)) { msg.textContent = 'Fiyat sıfırdan büyük bir sayı olmalı.'; return; }
     if (!(fee >= 0)) { msg.textContent = 'Komisyon geçerli bir sayı olmalı.'; return; }
-    const tx = { id: pfId(), type: f.type, date: f.date, qty, price, fee };
-    const c = pfCalc(p, tx);
-    if (c.oversold) { msg.textContent = `${c.oversold.date ? fmt.date(c.oversold.date) : 'Bu'} tarihinde elinizde ${qtyFmt(c.oversold.have)} ${unitOf(p)} var; daha fazlası satılamaz.`; return; }
-    p.txs.push(tx);
+    const err = applyTx(p, { id: pfId(), type: f.type, date: f.date, qty, price, fee }, fixed ? 'ext' : f.flow);
+    if (err) { msg.textContent = err; return; }
     txForm = null; persist(); renderPortfolio(); return;
   }
   if (e.target.id !== 'saveForm') return;
