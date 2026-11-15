@@ -58,14 +58,16 @@ const FIELDS = {
   freeFloat: { label: 'Halka açıklık',    f: fmt.pctPlain, pct: 1 },
   revGrowth: { label: 'Satış büyümesi',   f: fmt.pct, pct: 1, color: 1, title: 'Yılbaşından bu yana, geçen yılın aynı dönemine göre' },
   epsGrowth: { label: 'Kâr büyümesi',     f: fmt.pct, pct: 1, color: 1, title: 'Yılbaşından bu yana, geçen yılın aynı dönemine göre' },
-  divYield:  { label: 'Temettü verimi',   f: fmt.pctPlain, pct: 1, title: 'Son 12 ayda ödenen hisse başı temettü / güncel fiyat' },
-  divTtm:    { label: '12A temettü ₺',    f: x => !ok(x) || x === 0 ? '—' : fmt.price(x), title: 'Son 12 ayda ödenen hisse başı brüt temettü (TL)' },
+  divYield:  { label: 'Bu yıl verim',     f: fmt.pctPlain, pct: 1 },
+  divCur:    { label: 'Bu yıl temettü ₺', f: x => !ok(x) || x === 0 ? '—' : fmt.price(x) },
+  divYieldPrev: { label: 'Geçen yıl verim', f: fmt.pctPlain, pct: 1 },
+  divPrev:   { label: 'Geçen yıl temettü ₺', f: x => !ok(x) || x === 0 ? '—' : fmt.price(x) },
   lastDivDate: { label: 'Son ödeme',      f: fmt.date, nofilter: 1, title: 'Son temettünün hak kullanım (eski: ex-date) tarihi' },
   lastDivAmt: { label: 'Son tutar ₺',     f: fmt.price, title: 'Son ödenen hisse başı brüt temettü (TL)' },
-  divFreq:   { label: '12A ödeme',        f: x => !ok(x) || x === 0 ? '—' : x + '×', title: 'Son 12 aydaki temettü ödemesi sayısı' },
+  divFreq:   { label: 'Bu yıl ödeme',     f: x => !ok(x) || x === 0 ? '—' : x + '×' },
   divYears5: { label: 'Son 5 yıl',        f: x => !ok(x) ? '—' : `${x}/5`, title: 'Bu yıl dahil son 5 takvim yılının kaçında temettü ödendi' },
   divStreak: { label: 'Kesintisiz',       f: x => !ok(x) || x === 0 ? '—' : x + ' yıl', title: 'Kaç yıldır her yıl temettü ödüyor (yaklaşık 5 yıllık veriyle; en fazla 6 takvim yılı görünür)' },
-  divGrowth: { label: 'Temettü değişimi', f: fmt.pct, pct: 1, color: 1, title: 'Son 12 ay toplamı / önceki 12 ay toplamı' },
+  divGrowth: { label: 'Temettü değişimi', f: fmt.pct, pct: 1, color: 1 },
   divAvg5:   { label: '5Y ort. verim',    f: fmt.pctPlain, pct: 1, title: 'Son 5 tamamlanmış yılın ortalama yıllık temettüsü / güncel fiyat' },
   nextDivNet:   { label: 'Sıradaki tutar (net) ₺', f: fmt.price, title: 'Açıklanan sıradaki temettünün stopaj sonrası pay başı tutarı (temettuhisseleri.com)' },
   nextDivYield: { label: 'Sıradaki verim (net)',   f: fmt.pctPlain, pct: 1, title: 'Sıradaki net temettü / güncel fiyat' },
@@ -80,7 +82,7 @@ const VIEWS = {
   fiyat:    { label: 'Fiyat',    cols: ['_idx', 'last', 'chg1d', 'chg1w', 'chg1m', 'chg3m', 'chg1y', 'ytd', 'turnover', 'volRatio', 'mcap'] },
   trend:    { label: 'Trend',    cols: ['_idx', 'last', 'chg1d', '_trend', '_st', '_ichi', '_cross', 'vsSma50', 'vsSma200', 'vsVwma20', 'stDist', 'distHi52', 'rs3m'] },
   momentum: { label: 'Momentum', cols: ['_idx', 'last', 'chg1d', 'rsi', 'stochK', 'macdPct', 'fisher', '_cross', 'volRatio', 'atrPct', 'volat', 'beta'] },
-  temettu:  { label: 'Temettü',  cols: ['_idx', 'last', '_nextDiv', 'nextDivNet', 'nextDivYield', 'divYield', 'divTtm', 'lastDivDate', 'lastDivAmt', 'divFreq', 'divYears5', 'divStreak', 'divGrowth', 'divAvg5', 'payout'] },
+  temettu:  { label: 'Temettü',  cols: ['_idx', 'last', 'divYield', 'divCur', 'divYieldPrev', 'divPrev', 'divGrowth', 'divFreq', '_nextDiv', 'nextDivNet', 'lastDivDate', 'lastDivAmt', 'divYears5', 'divStreak', 'divAvg5', 'payout'] },
   temel:    { label: 'Temel',    cols: ['_idx', 'last', 'mcap', 'pe', 'pb', 'evEbitda', 'netMargin', 'roe', 'de', 'revGrowth', 'epsGrowth', 'divYield', 'freeFloat', '_sector'] },
 };
 const ST = { up: ['Al', 'up'], down: ['Sat', 'down'] };
@@ -196,7 +198,7 @@ const PRESETS = [
   { id: 'volspike', label: 'Hacim patlaması',  test: s => s.volRatio >= 2, hint: 'Hacim, 20 günlük ortalamanın 2 katı', sort: ['volRatio', -1] },
   { id: 'tedbir',   label: '⚠ Tedbirli',       test: s => !!s.tedbir?.length, hint: 'Borsa İstanbul tedbiri uygulanan hisseler' },
   { id: 'divSoon',  label: 'Yaklaşan temettü', test: s => !!s.divUpcoming?.length, hint: 'Açıklanmış, henüz ödenmemiş temettüsü olanlar (tarihli olanlar önce)', sort: ['_nextDiv', 1] },
-  { id: 'divHigh',  label: 'Yüksek temettü',   test: s => s.divYield >= 0.06, hint: 'Son 12 ay temettü verimi ≥ %6', sort: ['divYield', -1] },
+  { id: 'divHigh',  label: 'Yüksek temettü',   test: s => Math.max(s.divYield || 0, s.divYieldPrev || 0) >= 0.06, hint: 'Bu yılın ya da geçen yılın temettü verimi ≥ %6', sort: ['divYield', -1] },
   { id: 'divReg',   label: 'Düzenli temettü',  test: s => s.divYears5 >= 5, hint: 'Son 5 yılın her birinde temettü ödedi', sort: ['divAvg5', -1] },
   { id: 'value',    label: 'Ucuz',             test: s => s.pe > 0 && s.pe < 8 && s.pb > 0 && s.pb < 1.5, hint: 'F/K < 8 ve PD/DD < 1,5', sort: ['pe', 1] },
   { id: 'quality',  label: 'Kârlı büyüme',     test: s => s.roe > 0.25 && s.netMargin > 0.1 && s.revGrowth > 0, hint: 'ÖK kârlılığı > %25, net marj > %10, satış büyüyor', sort: ['roe', -1] },
@@ -223,7 +225,7 @@ if (!Array.isArray(state.markets)) state.markets = [];
 delete state.sector; delete state.market;
 const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* özel pencere vb. */ } scheduleSync(); };
 
-let DATA = null, BY = new Map(), MEDIANS = {};
+let DATA = null, BY = new Map(), MEDIANS = {}, DIV_Y = new Date().getFullYear();
 const HIST = new Map();
 const $ = s => document.querySelector(s);
 const view = $('#view');
@@ -235,6 +237,14 @@ async function loadSummary() {
   const r = await fetch('data/summary.json', { cache: 'no-cache' });
   if (!r.ok) throw new Error(r.status);
   DATA = await r.json();
+  const Y = DATA.divYear || +String(DATA.lastDate).slice(0, 4), P = Y - 1;
+  Object.assign(FIELDS.divYield, { label: `${Y} verimi`, title: `${Y} yılında şimdiye kadar ödenen hisse başı brüt temettü / güncel fiyat` });
+  Object.assign(FIELDS.divCur, { label: `${Y} temettü ₺`, title: `${Y} yılında şimdiye kadar ödenen hisse başı brüt temettü toplamı (TL)` });
+  Object.assign(FIELDS.divYieldPrev, { label: `${P} verimi`, title: `${P} yılında ödenen toplam hisse başı temettü / güncel fiyat` });
+  Object.assign(FIELDS.divPrev, { label: `${P} temettü ₺`, title: `${P} yılında ödenen hisse başı brüt temettü toplamı (TL)` });
+  Object.assign(FIELDS.divFreq, { label: `${Y} ödeme`, title: `${Y} yılındaki temettü ödemesi sayısı` });
+  Object.assign(FIELDS.divGrowth, { label: `Değişim ${Y}/${P}`, title: `${Y} toplamı (şimdiye kadar) / ${P} toplamı − 1. ${Y} içinde henüz ödeme yoksa boş.` });
+  DIV_Y = Y;
   fetch('data/fx.json', { cache: 'no-cache' }).then(x => x.ok ? x.json() : null).then(j => { FX = j; }).catch(() => {});
   BY = new Map(DATA.stocks.map(s => [s.t, s]));
   MEDIANS = sectorMedians(DATA.stocks);
@@ -484,7 +494,7 @@ async function renderDetail(t) {
   ];
   const fundRows = [
     ['Piyasa değeri', 'mcap', x => fmt.big(x) + ' ₺'], ['F/K', 'pe'], ['PD/DD', 'pb'], ['FD/FAVÖK', 'evEbitda'],
-    ['Net marj', 'netMargin'], ['ÖK kârlılığı', 'roe'], ['Borç / ÖK', 'de'], ['Satış büyümesi', 'revGrowth'], ['Kâr büyümesi', 'epsGrowth'], ['Temettü verimi', 'divYield'], ['Dağıtma oranı', 'payout'], ['Halka açıklık', 'freeFloat'],
+    ['Net marj', 'netMargin'], ['ÖK kârlılığı', 'roe'], ['Borç / ÖK', 'de'], ['Satış büyümesi', 'revGrowth'], ['Kâr büyümesi', 'epsGrowth'], [`Temettü verimi (${DIV_Y})`, 'divYield'], ['Dağıtma oranı', 'payout'], ['Halka açıklık', 'freeFloat'],
   ];
 
   view.innerHTML = `
@@ -570,10 +580,11 @@ function renderDivPanel(s, h) {
   ${upHtml}
   <div class="divgrid">
     <dl class="kv">
-      <dt>Son 12 ay verim</dt><dd>${fmt.pctPlain(s.divYield)}</dd><dd class="note">${s.divTtm ? fmt.price(s.divTtm) + ' ₺' : ''}</dd>
+      <dt>${DIV_Y} verimi</dt><dd>${fmt.pctPlain(s.divYield)}</dd><dd class="note">${s.divCur ? fmt.price(s.divCur) + ' ₺' + (s.divFreq > 1 ? ` (${s.divFreq} ödeme)` : '') : 'henüz ödeme yok'}</dd>
+      <dt>${DIV_Y - 1} verimi</dt><dd>${fmt.pctPlain(s.divYieldPrev)}</dd><dd class="note">${s.divPrev ? fmt.price(s.divPrev) + ' ₺' : '—'}</dd>
       <dt>Son 5 yıl</dt><dd>${FIELDS.divYears5.f(s.divYears5)}</dd><dd class="note">${s.divStreak ? s.divStreak + ' yıldır kesintisiz' : ''}</dd>
       <dt>5 yıllık ort. verim</dt><dd>${fmt.pctPlain(s.divAvg5)}</dd><dd class="note"></dd>
-      <dt>Temettü değişimi</dt><dd class="${cls(s.divGrowth)}">${fmt.pct(s.divGrowth)}</dd><dd class="note">son 12 ay / önceki 12 ay</dd>
+      <dt>Temettü değişimi</dt><dd class="${cls(s.divGrowth)}">${fmt.pct(s.divGrowth)}</dd><dd class="note">${DIV_Y} / ${DIV_Y - 1}</dd>
       <dt>Dağıtma oranı</dt><dd>${fmt.pctPlain(s.payout)}</dd><dd class="note">${s.payout != null ? 'temettü / net kâr' : ''}</dd>
     </dl>
     <div class="tablewrap flat"><table class="grid"><thead><tr><th class="tk">Tarih</th><th>Hisse başı ₺</th><th title="Ödeme günündeki kapanışa göre">O günkü verim</th><th>Bugünkü fiyata göre</th></tr></thead><tbody>
@@ -1117,7 +1128,7 @@ function renderPortfolio() {
   const tot = rows.reduce((a, r) => ({ value: a.value + (r.value || 0), cost: a.cost + r.c.cost, day: a.day + (r.day || 0) }), { value: 0, cost: 0, day: 0 });
   const unreal = tot.value - tot.cost, realized = all.reduce((a, r) => a + r.c.realized, 0), inv = netInvested();
   const pend = pendingDivs(), pendNet = pend.reduce((a, x) => a + x.net, 0), ret = tot.value - inv + divReceivedExt();
-  const divYear = rows.filter(r => r.s && !isAsset(r.p)).reduce((a, r) => a + (r.s.divTtm || 0) * r.c.qty, 0);
+  const divYear = rows.filter(r => r.s && !isAsset(r.p)).reduce((a, r) => a + (r.s.divCur || 0) * r.c.qty, 0);
   const byCat = Object.fromEntries(Object.keys(PF_CATS).map(c => [c, rows.filter(r => r.p.cat === c)]));
   const catVal = c => byCat[c].reduce((a, r) => a + (r.value || 0), 0);
   const share = r => tot.value ? (r.value || 0) / tot.value : null;
@@ -1136,9 +1147,9 @@ function renderPortfolio() {
   const histRow = (r, cols) => !pfHist.has(r.p.id) ? '' : `<tr class="txrow"><td colspan="${cols}">${txTable(r)}</td></tr>`;
 
   const tables = {
-    temettu: list => `<table class="grid"><thead><tr><th class="tk">Hisse</th>${commonHead()}<th title="Son 12 ay temettü / güncel fiyat">12A verim</th><th title="Son 12 ay temettü / ortalama maliyet">Maliyete göre</th><th title="Son 12 ayın temettüsü × adet (brüt)">Yıllık temettü ₺</th><th>Sıradaki temettü</th><th></th></tr></thead><tbody>
+    temettu: list => `<table class="grid"><thead><tr><th class="tk">Hisse</th>${commonHead()}<th title="${DIV_Y} yılında ödenen temettü / güncel fiyat">${DIV_Y} verimi</th><th title="${DIV_Y} yılında ödenen temettü / ortalama maliyetiniz">Maliyete göre</th><th title="${DIV_Y} yılında ödenen hisse başı temettü × adet (brüt)">${DIV_Y} temettüsü ₺</th><th>Sıradaki temettü</th><th></th></tr></thead><tbody>
       ${list.map(r => `<tr data-t="${r.p.sym}"><td class="tk">${name(r)}${note(r)}</td>${common(r)}
-        <td>${fmt.pctPlain(r.s?.divYield)}</td><td>${r.s?.divTtm && r.c.avg ? fmt.pctPlain(r.s.divTtm / r.c.avg) : '—'}</td><td>${r.s?.divTtm ? fmt.big(r.s.divTtm * r.c.qty) : '—'}</td>
+        <td>${fmt.pctPlain(r.s?.divYield)}</td><td>${r.s?.divCur && r.c.avg ? fmt.pctPlain(r.s.divCur / r.c.avg) : '—'}</td><td>${r.s?.divCur ? fmt.big(r.s.divCur * r.c.qty) : '—'}</td>
         <td class="txt">${r.s?.divUpcoming?.length ? `${r.s.nextDivDate ? `<span class="chip up">${fmt.date(r.s.nextDivDate)}</span>` : '<span class="chip warn">Tarih bekleniyor</span>'} <span class="num">${fmt.big(r.s.nextDivNet * r.c.qty)} ₺ net</span>` : '<span class="muted">—</span>'}</td>${actions(r)}</tr>${histRow(r, 13)}`).join('')}
     </tbody></table>`,
     trend: list => `<table class="grid"><thead><tr><th class="tk">Hisse</th>${commonHead()}<th>Durum</th><th>Supertrend</th><th>Trend</th><th>RSI</th><th title="Supertrend çizgisi: olası stop seviyesi">ST stop</th><th></th></tr></thead><tbody>
@@ -1180,7 +1191,7 @@ function renderPortfolio() {
     <div class="ret"><span title="Elde tutulan varlıkların kâr/zararı">Açık K/Z</span><b class="${cls(unreal)}">${signed(unreal)} ₺ · ${fmt.pct(tot.cost ? unreal / tot.cost : null)}</b></div>
     <div class="ret"><span title="Satışlardan gerçekleşen kâr/zarar (ortalama maliyet yöntemi, komisyon dahil)">Gerçekleşen K/Z</span><b class="${cls(realized)}">${signed(realized)} ₺</b></div>
     <div class="ret"><span>Bugün</span><b class="${cls(tot.day)}">${signed(tot.day)} ₺ · ${fmt.pct(tot.value - tot.day ? tot.day / (tot.value - tot.day) : null)}</b></div>
-    <div class="ret"><span title="Hisselerin son 12 ay temettüsü × adet (brüt)">Yıllık temettü</span><b>${fmt.big(divYear)} ₺ · ${fmt.pctPlain(tot.value ? divYear / tot.value : null)}</b></div>
+    <div class="ret"><span title="Hisselerin ${DIV_Y} yılında ödediği temettü × bugünkü adet (brüt)">${DIV_Y} temettüsü</span><b>${fmt.big(divYear)} ₺ · ${fmt.pctPlain(tot.value ? divYear / tot.value : null)}</b></div>
   </div>
   ${tot.value ? `<div class="alloc" aria-label="Kategori dağılımı">
     <div class="bar">${Object.entries(PF_CATS).map(([c, d]) => { const v = catVal(c); return v > 0 ? `<i style="width:${v / tot.value * 100}%;background:var(${d.color})" title="${d.label}"></i>` : ''; }).join('')}</div>

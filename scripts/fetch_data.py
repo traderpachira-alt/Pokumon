@@ -151,8 +151,10 @@ def vwma(c, v, n=20):
 
 
 def div_metrics(df: pd.DataFrame) -> dict:
-    """Temettü ölçütleri (Yahoo temettü geçmişi, bölünmelere göre düzeltilmiş, hisse başı TL)."""
-    keys = ("divTtm", "divYield", "lastDivDate", "lastDivAmt", "divFreq", "divYears5", "divStreak", "divGrowth", "divAvg5", "divRecent")
+    """Temettü ölçütleri, TAKVİM YILI bazında (Yahoo temettü geçmişi, bölünmelere göre düzeltilmiş, hisse başı brüt TL).
+    divCur: bu yıl şimdiye kadar ödenen toplam; divPrev: geçen yılın toplamı; verimler güncel fiyata göre."""
+    keys = ("divCur", "divPrev", "divYield", "divYieldPrev", "lastDivDate", "lastDivAmt", "divFreq",
+            "divYears5", "divStreak", "divGrowth", "divAvg5", "divRecent")
     out = dict.fromkeys(keys)
     if "Dividends" not in df.columns:
         return out
@@ -161,31 +163,30 @@ def div_metrics(df: pd.DataFrame) -> dict:
     d = d[d > 0]
     out["divYears5"], out["divStreak"] = 0, 0
     if d.empty:
-        out["divTtm"], out["divYield"], out["divFreq"] = 0.0, 0.0, 0
+        out.update(divCur=0.0, divPrev=0.0, divYield=0.0, divYieldPrev=0.0, divFreq=0)
         return out
-    year_ago = end - pd.DateOffset(years=1)
-    ttm = d[d.index > year_ago]
-    prev = d[(d.index > year_ago - pd.DateOffset(years=1)) & (d.index <= year_ago)]
-    out["divTtm"] = float(ttm.sum())
-    out["divYield"] = out["divTtm"] / last_px if last_px else None
-    out["divFreq"] = int(len(ttm))
+    this = end.year
+    by_year = d.groupby(d.index.year).sum()
+    cur, prev = float(by_year.get(this, 0.0)), float(by_year.get(this - 1, 0.0))
+    out["divCur"], out["divPrev"] = cur, prev
+    out["divYield"] = cur / last_px if last_px else None
+    out["divYieldPrev"] = prev / last_px if last_px else None
+    out["divFreq"] = int((d.index.year == this).sum())
+    # Bu yıl (şimdiye kadar) / geçen yıl; bu yıl henüz ödeme yoksa yıl bitmediği için hesaplanmaz (−%100 yanıltıcı olur)
+    out["divGrowth"] = (cur / prev - 1) if prev > 0 and cur > 0 else None
     out["lastDivDate"] = d.index[-1].strftime("%Y-%m-%d")
+    out["lastDivAmt"] = float(d.iloc[-1])
     # Son ~400 günün temettüleri (portföyde hak sahipliği tespiti için): [[hak kullanım tarihi, hisse başı brüt TL]]
     recent = d[d.index > end - pd.DateOffset(days=400)]
     out["divRecent"] = [[i.strftime("%Y-%m-%d"), round(float(x), 4)] for i, x in recent.items()]
-    out["lastDivAmt"] = float(d.iloc[-1])
-    out["divGrowth"] = (out["divTtm"] / float(prev.sum()) - 1) if prev.sum() > 0 else None
     years = set(d.index.year)
-    this = end.year
-    window = range(this - 4, this + 1)  # bu yıl dahil son 5 takvim yılı
-    out["divYears5"] = sum(y in years for y in window)
+    out["divYears5"] = sum(y in years for y in range(this - 4, this + 1))  # bu yıl dahil son 5 takvim yılı
     # Kesintisiz yıl: bu yıl henüz ödemediyse geçen yıldan saymaya başla
     y = this if this in years else this - 1
     streak = 0
     while y in years:
         streak, y = streak + 1, y - 1
     out["divStreak"] = streak
-    by_year = d.groupby(d.index.year).sum()
     full = [by_year.get(yy, 0.0) for yy in range(this - 5, this)]  # tamamlanmış son 5 yıl
     out["divAvg5"] = (sum(full) / 5) / last_px if last_px else None
     return out
@@ -817,6 +818,7 @@ def main():
         "updated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         "lastDate": max(s["date"] for s in stocks),
         "indexDate": index_date,
+        "divYear": int(max(s["date"] for s in stocks)[:4]),
         "tedbirAt": measures_at,
         "divUpAt": upcoming_at,
         "assets": {"TRY": {"last": 1.0, "chg1d": 0.0}} if args.sample else fetch_assets(),

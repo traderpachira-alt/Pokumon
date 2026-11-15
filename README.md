@@ -10,8 +10,8 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
   kendi filtrelerin (ör. `RSI 14 < 30`, `F/K < 8`) ve hazır taramalar (aşırı satım/alım, güçlü trend,
   golden cross, MACD / Supertrend / Fisher al, Stoch RSI dipte, bulut üstünde, 52H zirvesi, hacim patlaması,
   ucuz, kârlı büyüme). ★ ile izleme listesi.
-- **Temettü:** açıklanmış ama henüz ödenmemiş temettüler (tarihli ya da "tarih bekleniyor"), son 12 ay verim ve hisse başı tutar, son ödeme, 12 ayda ödeme sayısı, son 5 yılda kaç yıl ödediği,
-  kesintisiz yıl, temettü değişimi, 5 yıllık ortalama verim, dağıtma oranı; hisse sayfasında ödeme geçmişi.
+- **Temettü:** açıklanmış ama henüz ödenmemiş temettüler (tarihli ya da "tarih bekleniyor"), takvim yılı bazında bu yıl ve geçen yılın toplamı ve verimi (güncel fiyata göre), yıllık değişim,
+  bu yılki ödeme sayısı, son ödeme, son 5 yılda kaç yıl ödediği, kesintisiz yıl, 5 yıllık ortalama verim, dağıtma oranı; hisse sayfasında ödeme geçmişi.
 - **Tedbir uyarısı:** tedbirli hissenin yanında ⚠; üzerine gelince/dokununca tedbirler.
 - **Kayıtlı taramalar:** filtre + endeks + sektör + hazır tarama kombinasyonunu adıyla kaydet, tek dokunuşla aç.
 - **Hisse detayı:** mum grafik + hacim; katmanlar: SMA20/50/200, VWMA20, Bollinger, Ichimoku, Supertrend;
