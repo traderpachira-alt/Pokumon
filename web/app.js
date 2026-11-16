@@ -334,7 +334,7 @@ function tableHtml(rows, cols, { sortable = true, highlight = null } = {}) {
     const def = FIELDS[k] || TEXTCOLS[k];
     const sort = state.sort.key === k ? (state.sort.dir > 0 ? 'ascending' : 'descending') : null;
     const inner = sortable ? `<button type="button" data-sort="${k}">${esc(def.label)}</button>` : esc(def.label);
-    return `<th${sort && sortable ? ` aria-sort="${sort}"` : ''}${def.title ? ` title="${esc(def.title)}"` : ''}>${inner}</th>`;
+    return `<th${sort && sortable ? ` aria-sort="${sort}"` : ''}${def.title ? ` title="${esc(def.title)}"` : ''}${sortable ? ` draggable="true" data-col="${k}"` : ''}>${inner}</th>`;
   };
   const head = `<tr><th class="tk">${sortable ? '<button type="button" data-sort="t">Hisse</button>' : 'Hisse'}</th>${cols.map(th).join('')}</tr>`;
   const body = rows.map(s => {
@@ -398,6 +398,13 @@ function refreshResults() {
     m.classList.toggle('on', state[k].length > 0);
   });
 }
+// Açılır paneli ekrana sığdır (sağdan taşıyorsa sola kaydır)
+function fitPanel(panel) {
+  if (!panel || panel.hidden) return;
+  panel.style.left = '';
+  const r = panel.getBoundingClientRect(), over = r.right - (document.documentElement.clientWidth - 8);
+  if (over > 0) panel.style.left = `${-Math.min(over, r.left - 8)}px`;
+}
 function closeMs() {
   if (!msOpen) return;
   msOpen = null;
@@ -411,29 +418,47 @@ const colLabel = k => (FIELDS[k] || TEXTCOLS[k])?.label || k;
 const colsFor = v => { const c = state.cols?.[v]; return Array.isArray(c) ? c.filter(k => FIELDS[k] || TEXTCOLS[k]) : VIEWS[v].cols; };
 const colsCustom = v => Array.isArray(state.cols?.[v]);
 function setCols(v, list) {
-  const def = VIEWS[v].cols, set = new Set(list);
-  // Sıra: önce sekmenin varsayılan sırası, sonra eklenen diğer sütunlar eklendikleri sırayla
-  const ordered = [...def.filter(k => set.has(k)), ...list.filter(k => !def.includes(k))];
+  const def = VIEWS[v].cols, ordered = [...new Set(list)];
   state.cols ||= {};
   if (ordered.length === def.length && ordered.every((k, i) => k === def[i])) delete state.cols[v]; else state.cols[v] = ordered;
 }
+function moveCol(k, to) { // to: hedef indeks
+  const cur = colsFor(state.view).filter(x => x !== k);
+  cur.splice(Math.max(0, Math.min(cur.length, to)), 0, k);
+  setCols(state.view, cur);
+}
+// Sütun paneli ve tablo değişince: tabloyu yenile, açık paneli yeniden çiz (sıralama/bölümler güncellensin)
+function refreshCols() {
+  persist(); refreshResults();
+  const m = view.querySelector('.ms[data-ms="cols"]');
+  if (m) {
+    const q = m.querySelector('.ms-q')?.value || '';
+    m.outerHTML = colsPanel();
+    fitPanel(view.querySelector('.colpanel'));
+    if (q) { const nq = view.querySelector('.colpanel .ms-q'); nq.value = q; nq.dispatchEvent(new Event('input', { bubbles: true })); }
+  }
+}
 function colsPanel() {
-  const v = state.view, cur = new Set(colsFor(v)), open = msOpen === 'cols', def = VIEWS[v].cols;
-  const others = Object.entries(VIEWS).filter(([id]) => id !== v).map(([id, vw]) => [vw.label, vw.cols.filter(k => !def.includes(k))]);
+  const v = state.view, shown = colsFor(v), cur = new Set(shown), open = msOpen === 'cols', def = VIEWS[v].cols;
+  const others = Object.entries(VIEWS).filter(([id]) => id !== v).map(([, vw]) => [vw.label, vw.cols]);
   const inViews = new Set(Object.values(VIEWS).flatMap(x => x.cols));
   const loose = Object.keys(FIELDS).filter(k => !inViews.has(k));
-  const seen = new Set(def);
-  const group = (title, keys) => { keys = keys.filter(k => !seen.has(k) && (seen.add(k), true)); return keys.length ? `<div class="ms-grp">${title}</div>` + keys.map(k => `<label><input type="checkbox" value="${k}"${cur.has(k) ? ' checked' : ''}> <span>${esc(colLabel(k))}</span></label>`).join('') : ''; };
+  const seen = new Set(shown);
+  const addRow = k => `<label><input type="checkbox" value="${k}"> <span>${esc(colLabel(k))}</span></label>`;
+  const group = (title, keys) => { keys = keys.filter(k => !seen.has(k) && (seen.add(k), true)); return keys.length ? `<div class="ms-grp">${title}</div>` + keys.map(addRow).join('') : ''; };
   return `<div class="ms${colsCustom(v) ? ' on' : ''}" data-ms="cols">
-    <button type="button" class="btn ms-btn" data-mstoggle="cols" aria-haspopup="true" aria-expanded="${open}" title="Tabloda görünecek sütunları seçin"><span class="ms-lbl">☰ Sütunlar (${cur.size})</span> ▾</button>
+    <button type="button" class="btn ms-btn" data-mstoggle="cols" aria-haspopup="true" aria-expanded="${open}" title="Tabloda görünecek sütunları ve sıralarını seçin"><span class="ms-lbl">☰ Sütunlar (${cur.size})</span> ▾</button>
     <div class="ms-panel colpanel"${open ? '' : ' hidden'}>
       <input type="search" class="ms-q" placeholder="Sütun ara…" aria-label="Sütun ara" autocomplete="off">
       <div class="ms-list">
-        <div class="ms-grp">${VIEWS[v].label} sekmesi</div>
-        ${def.map(k => `<label><input type="checkbox" value="${k}"${cur.has(k) ? ' checked' : ''}> <span>${esc(colLabel(k))}</span></label>`).join('')}
-        ${others.map(([t, keys]) => group(`Diğer · ${t}`, keys)).join('')}
-        ${group('Diğer · ek alanlar', loose)}
+        <div class="ms-grp">Görünen sütunlar · soldan sağa</div>
+        ${shown.map((k, i) => `<label class="colrow"><input type="checkbox" value="${k}" checked> <span>${esc(colLabel(k))}</span>
+          <button type="button" class="ic" data-colmove="${k}|-1" aria-label="${esc(colLabel(k))} sola taşı"${i === 0 ? ' disabled' : ''}>↑</button><button type="button" class="ic" data-colmove="${k}|1" aria-label="${esc(colLabel(k))} sağa taşı"${i === shown.length - 1 ? ' disabled' : ''}>↓</button></label>`).join('')}
+        ${group(`${VIEWS[v].label} sekmesinden gizlenenler`, def)}
+        ${others.map(([t, keys]) => group(`Ekle · ${t}`, keys)).join('')}
+        ${group('Ekle · ek alanlar', loose)}
       </div>
+      <p class="muted" style="font-size:11px;margin:0">Bilgisayarda tablo başlıklarını sürükleyerek de sıralayabilirsiniz.</p>
       <div class="ms-foot"><button type="button" class="btn" data-colsreset="1">Varsayılana dön</button><button type="button" class="btn primary" data-msclose="1">Tamam</button></div>
     </div>
   </div>`;
@@ -1688,16 +1713,20 @@ view.addEventListener('click', e => {
     if (!was) {
       msOpen = d.mstoggle;
       const m = b.closest('.ms'), panel = m.querySelector('.ms-panel');
-      panel.style.left = ''; panel.hidden = false; b.setAttribute('aria-expanded', 'true');
-      // Ekrana sığmıyorsa sola kaydır
-      const r = panel.getBoundingClientRect(), over = r.right - (document.documentElement.clientWidth - 8);
-      if (over > 0) panel.style.left = `${-Math.min(over, r.left - 8)}px`;
+      panel.hidden = false; b.setAttribute('aria-expanded', 'true'); fitPanel(panel);
       m.querySelector('.ms-q')?.focus();
     }
     return;
   }
   if (d.msclear) { state[d.msclear] = []; persist(); b.closest('.ms').querySelectorAll('input[type=checkbox]').forEach(c => { c.checked = false; }); refreshResults(); return; }
   if (d.msclose) { closeMs(); return; }
+  if (d.colmove) {
+    e.preventDefault(); // label içindeki düğme: onay kutusunu değiştirmesin
+    const [k, dir] = d.colmove.split('|'), i = colsFor(state.view).indexOf(k);
+    moveCol(k, i + +dir); refreshCols();
+    view.querySelector(`.colpanel [data-colmove="${k}|${dir}"]:not([disabled])`)?.focus();
+    return;
+  }
   if (d.colsreset) { if (state.cols) delete state.cols[state.view]; persist(); renderScreener(); return; }
   // Portföy
   if (d.pfaddsym) { pfOpen('temettu', d.pfaddsym); pfDelArmed = null; location.hash = '#/portfoy'; return; }
@@ -1773,6 +1802,31 @@ view.addEventListener('click', e => {
   if (d.t) location.hash = `#/h/${d.t}`;
 });
 
+// Bilgisayarda başlığı sürükleyip bırakarak sütun sırası
+let dragCol = null;
+view.addEventListener('dragstart', e => {
+  const th = e.target.closest?.('th[data-col]'); if (!th) return;
+  dragCol = th.dataset.col; th.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragCol);
+});
+view.addEventListener('dragover', e => {
+  const th = e.target.closest?.('th[data-col]'); if (!th || !dragCol) return;
+  e.preventDefault();
+  const r = th.getBoundingClientRect(), after = e.clientX > r.left + r.width / 2;
+  view.querySelectorAll('th.drop-before, th.drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after'));
+  if (th.dataset.col !== dragCol) th.classList.add(after ? 'drop-after' : 'drop-before');
+});
+view.addEventListener('dragend', () => { dragCol = null; view.querySelectorAll('th.dragging, th.drop-before, th.drop-after').forEach(x => x.classList.remove('dragging', 'drop-before', 'drop-after')); });
+view.addEventListener('drop', e => {
+  const th = e.target.closest?.('th[data-col]'); if (!th || !dragCol) return;
+  e.preventDefault();
+  const target = th.dataset.col, k = dragCol; dragCol = null;
+  if (target === k) return;
+  const r = th.getBoundingClientRect(), after = e.clientX > r.left + r.width / 2;
+  const rest = colsFor(state.view).filter(x => x !== k), i = rest.indexOf(target);
+  moveCol(k, after ? i + 1 : i); refreshCols();
+});
+
 view.addEventListener('change', e => {
   if (e.target.id === 'indexSel') { state.index = e.target.value; persist(); renderScreener(); return; }
   const ms = e.target.closest('.ms');
@@ -1782,7 +1836,7 @@ view.addEventListener('change', e => {
       const cur = colsFor(state.view);
       if (!e.target.checked && cur.length <= 1) { e.target.checked = true; return; } // en az bir sütun kalsın
       setCols(state.view, e.target.checked ? [...cur, v] : cur.filter(x => x !== v));
-      persist(); refreshResults(); return;
+      refreshCols(); return;
     }
     state[k] = e.target.checked ? [...new Set([...state[k], v])] : state[k].filter(x => x !== v);
     persist(); refreshResults(); return;
@@ -1801,7 +1855,15 @@ view.addEventListener('input', e => {
   if (e.target.closest?.('#txForm')) { txReadForm(); const el = $('#txAmt'); if (el) el.innerHTML = txPreview(txForm); }
   if (e.target.classList.contains('ms-q')) {
     const q = e.target.value.trim().toLocaleLowerCase('tr');
-    e.target.closest('.ms').querySelectorAll('.ms-list label').forEach(l => { l.hidden = q && !l.textContent.toLocaleLowerCase('tr').includes(q); });
+    const list = e.target.closest('.ms').querySelector('.ms-list');
+    list.querySelectorAll('label').forEach(l => { l.hidden = q && !l.textContent.toLocaleLowerCase('tr').includes(q); });
+    // Eşleşen satırı kalmayan grup başlıklarını da gizle
+    let grp = null, any = false;
+    const close = () => { if (grp) grp.hidden = !any; };
+    for (const el of list.children) {
+      if (el.classList.contains('ms-grp')) { close(); grp = el; any = false; } else if (!el.hidden) any = true;
+    }
+    close();
     return;
   }
   if (e.target.dataset.f !== 'value') return;

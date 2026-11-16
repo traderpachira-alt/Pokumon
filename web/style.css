@@ -374,3 +374,11 @@ textarea.code { width: 100%; font: 12px/1.4 var(--mono); border: 1px solid var(-
 .ms-grp { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); padding: 8px 6px 2px; }
 .colpanel { width: 300px; }
 .colpanel .ms-list { max-height: 360px; }
+
+/* Sütun sıralama */
+.colrow .ic { padding: 0 6px; font-size: 12px; }
+.colrow .ic:disabled { opacity: .3; }
+.grid th[draggable="true"] { cursor: grab; }
+.grid th.dragging { opacity: .4; }
+.grid th.drop-before { box-shadow: inset 3px 0 0 var(--accent); }
+.grid th.drop-after { box-shadow: inset -3px 0 0 var(--accent); }
