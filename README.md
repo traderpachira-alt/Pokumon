@@ -22,7 +22,8 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
   "Varsayılana dön" ile sıfırlanır.
 - **Kayıtlı taramalar:** filtre + endeks + sektör + hazır tarama kombinasyonunu adıyla kaydet, tek dokunuşla aç.
 - **Hisse detayı:** mum grafik + hacim; katmanlar: SMA20/50/200, VWMA20, Bollinger, Ichimoku, Supertrend;
-  alt paneller: RSI, Stoch RSI, MACD, Fisher, ATR. Getiriler, 52 haftalık aralık, teknik özet,
+  alt paneller: RSI, Stoch RSI, MACD, Fisher, ATR. Doğrusal / log / % ölçek, fiyat eksenini sürükleyerek dikey
+  yakınlaştırma, mıknatıslı imleç, hacim aç/kapa, görünümü sıfırla, tam ekran. Getiriler, 52 haftalık aralık, teknik özet,
   sektör medyanıyla karşılaştırmalı temel oranlar, aynı sektördeki hisseler.
 - **Karşılaştır:** en fazla 5 hisse + BIST 100, dönem başı = 100; dönem getirisi, BIST 100'e göre fark,
   en büyük düşüş ve volatilite tablosu.

@@ -382,3 +382,28 @@ textarea.code { width: 100%; font: 12px/1.4 var(--mono); border: 1px solid var(-
 .grid th.dragging { opacity: .4; }
 .grid th.drop-before { box-shadow: inset 3px 0 0 var(--accent); }
 .grid th.drop-after { box-shadow: inset -3px 0 0 var(--accent); }
+
+/* Grafik görünüm kontrolleri ve tam ekran */
+.charthint { font-size: 11px; margin: 4px 0 0; }
+.fullclose { display: none; }
+body.noscroll { overflow: hidden; }
+.chartwrap.full {
+  position: fixed; inset: 0; z-index: 60; background: var(--bg); display: flex; flex-direction: column; gap: 8px;
+  padding-block: max(8px, env(safe-area-inset-top, 0px)) max(8px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px));
+}
+.chartwrap.full .charts { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.chartwrap.full .c-main { flex: 1; height: auto; min-height: 180px; }
+.chartwrap.full .charthint { display: none; }
+.chartwrap.full .fullclose { display: grid; place-items: center; position: absolute; z-index: 4; top: 6px; right: 80px; width: 30px; height: 30px;
+  border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 14px; }
+@media (max-width: 640px) { .chartwrap.full .chartbar { gap: 6px; } .chartwrap.full .c-sub { height: 80px; } }
+/* Kısa ekranda (telefon yatay) tam ekran: araç çubuğu tek satır, yatay kaydırılır; alt paneller ince */
+@media (max-height: 520px) {
+  .chartwrap.full { gap: 4px; }
+  .chartwrap.full .chartbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .chartwrap.full .chartbar::-webkit-scrollbar { display: none; }
+  .chartwrap.full .chartbar > *, .chartwrap.full .toggles { flex: 0 0 auto; flex-wrap: nowrap; }
+  .chartwrap.full .c-sub { height: 62px; }
+  .chartwrap.full .seg button, .chartwrap.full .tg { padding-block: 3px; }
+}

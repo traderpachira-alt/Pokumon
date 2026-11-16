@@ -222,9 +222,10 @@ const state = Object.assign({
   view: 'fiyat', sort: { key: 'turnover', dir: -1 }, preset: 'all', sectors: [], index: '', markets: [], hideTedbir: false, filters: [], watch: [], saved: [],
   compare: ['XU100'], portfolio: [],
   chart: { range: '6A', sma20: false, sma50: true, sma200: true, bb: false, vwma: false, ichi: false, st: false,
-           rsi: true, stoch: false, macd: true, fisher: false, atr: false },
+           rsi: true, stoch: false, macd: true, fisher: false, atr: false, vol: true, magnet: false, scale: 'lin' },
 }, (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } })());
 if (!VIEWS[state.view]) state.view = 'trend'; // eski sürümdeki 'teknik' görünümü
+state.chart.vol ??= true; state.chart.scale ??= 'lin'; // eski kayıtlarda olmayan grafik ayarları
 // Eski tekli seçimleri (sector/market) çoklu seçime çevir
 const listOf = (o, key) => Array.isArray(o[key + 's']) ? o[key + 's'] : o[key] ? [o[key]] : [];
 if (state.sector) state.sectors = [state.sector];
@@ -609,8 +610,16 @@ async function renderDetail(t) {
     ${isIdx ? '' : `<div class="row"><button type="button" class="btn" data-cmpadd="${t}">${state.compare.includes(t) ? '⇆ Karşılaştırmada' : '⇆ Karşılaştır'}</button><button type="button" class="btn" data-pfaddsym="${t}">+ Portföye ekle${state.portfolio.some(p => p.sym === t) ? ' <span class="chip up">var</span>' : ''}</button></div>`}
   </section>
 
+  <div class="chartwrap" id="chartWrap">
   <div class="chartbar">
     <div class="seg" role="group" aria-label="Zaman aralığı">${Object.keys(RANGES).map(r => `<button type="button" data-range="${r}" aria-pressed="${state.chart.range === r}">${r}</button>`).join('')}</div>
+    <div class="seg" role="group" aria-label="Fiyat ölçeği">${[['lin', 'Doğrusal', 'Doğrusal fiyat ölçeği'], ['log', 'Log', 'Logaritmik ölçek: oransal hareketler eşit görünür'], ['pct', '%', 'Ekrandaki ilk muma göre yüzde değişim']].map(([k, l, t]) => `<button type="button" data-cscale="${k}" aria-pressed="${state.chart.scale === k}" title="${t}">${l}</button>`).join('')}</div>
+    <div class="toggles" role="group" aria-label="Görünüm">
+      <button type="button" class="tg" data-tg="vol" aria-pressed="${state.chart.vol !== false}" title="Hacim çubuklarını göster/gizle">Hacim</button>
+      <button type="button" class="tg" data-tg="magnet" aria-pressed="${!!state.chart.magnet}" title="İmleç mumların açılış/yüksek/düşük/kapanış değerlerine yapışsın">🧲 Mıknatıs</button>
+      <button type="button" class="tg" data-cview="reset" title="Kaydırma ve yakınlaştırmayı sıfırla (seçili aralık + otomatik ölçek)">↺ Sıfırla</button>
+      <button type="button" class="tg" data-cview="full" title="Tam ekran (Esc ile çık)">⤢ Tam ekran</button>
+    </div>
     <div class="toggles" role="group" aria-label="Grafik katmanları">${OVERLAYS.map(([k, l, c]) => `<button type="button" class="tg" data-tg="${k}" aria-pressed="${!!state.chart[k]}"><i style="--c:var(${c})"></i>${l}</button>`).join('')}</div>
     <div class="toggles" role="group" aria-label="Alt paneller">${PANES.map(([k, l]) => `<button type="button" class="tg" data-tg="${k}" aria-pressed="${!!state.chart[k]}">${l}</button>`).join('')}</div>
   </div>
@@ -618,6 +627,9 @@ async function renderDetail(t) {
     <div class="legend" id="legend"></div>
     <div class="c-main" id="cMain"></div>
     ${PANES.map(([k, , title]) => `<div class="c-sub" id="pane-${k}"${state.chart[k] ? '' : ' hidden'}><span class="lbl">${title}</span></div>`).join('')}
+    <button type="button" class="fullclose" data-cview="full" aria-label="Tam ekrandan çık">✕</button>
+  </div>
+  <p class="charthint muted">Kaydırmak için sürükleyin, yakınlaştırmak için tekerlek ya da iki parmak; dikey ölçek için sağdaki fiyat eksenini sürükleyin, çift tıklayınca otomatiğe döner.</p>
   </div>
 
   <div class="panels">
@@ -713,9 +725,9 @@ function drawCharts(h) {
     grid: { vertLines: { color: css('--grid') }, horzLines: { color: css('--grid') } },
     rightPriceScale: { borderColor: css('--line'), minimumWidth: 72 },
     timeScale: { borderColor: css('--line'), visible: bottom, rightOffset: 3 },
-    crosshair: { mode: 0 },
+    crosshair: { mode: C.magnet ? 1 : 0 },
     localization: { locale: 'tr-TR', priceFormatter: p => (Math.abs(p) < 1 ? F4 : F2).format(p) },
-    handleScale: { axisPressedMouseMove: { time: true, price: false } },
+    handleScale: { axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: { time: true, price: true } },
   });
   const up = css('--up'), down = css('--down');
   const T = h.d;
@@ -727,9 +739,12 @@ function drawCharts(h) {
   const candle = main.addCandlestickSeries({ upColor: up, downColor: down, borderUpColor: up, borderDownColor: down, wickUpColor: up, wickDownColor: down, priceLineVisible: false });
   candle.priceScale().applyOptions({ scaleMargins: { top: 0.08, bottom: 0.22 } });
   candle.setData(T.map((time, i) => ({ time, open: h.o[i], high: h.h[i], low: h.l[i], close: h.c[i] })));
-  const vol = main.addHistogramSeries({ priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
-  main.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-  vol.setData(T.map((time, i) => ({ time, value: h.v[i], color: (h.c[i] >= h.o[i] ? up : down) + '55' })));
+  candle.priceScale().applyOptions({ mode: { lin: 0, log: 1, pct: 2 }[C.scale] ?? 0 });
+  if (C.vol !== false) {
+    const vol = main.addHistogramSeries({ priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
+    main.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+    vol.setData(T.map((time, i) => ({ time, value: h.v[i], color: (h.c[i] >= h.o[i] ? up : down) + '55' })));
+  } else candle.priceScale().applyOptions({ scaleMargins: { top: 0.08, bottom: 0.06 } });
 
   const ma = {};
   const addLine = (arr, color, width = 1.5, style = 0) => {
@@ -832,6 +847,18 @@ function drawCharts(h) {
 
   setRange(state.chart.range, T);
 }
+
+// Tam ekran: grafik ve araç çubuğu tüm ekranı kaplar (iOS dahil her tarayıcıda çalışan CSS yöntemi)
+function toggleFull(force) {
+  const w = $('#chartWrap');
+  if (!w) return;
+  const on = force ?? !w.classList.contains('full');
+  w.classList.toggle('full', on);
+  document.body.classList.toggle('noscroll', on);
+  w.querySelector('[data-cview="full"].tg')?.setAttribute('aria-pressed', on);
+}
+addEventListener('keydown', e => { if (e.key === 'Escape' && $('#chartWrap.full')) toggleFull(false); });
+addEventListener('hashchange', () => { document.body.classList.remove('noscroll'); });
 
 function setRange(r, T) {
   const main = charts[0];
@@ -1791,6 +1818,19 @@ view.addEventListener('click', e => {
     if (HIST.has(t)) setRange(d.range, HIST.get(t).d);
     return;
   }
+  if (d.cscale) {
+    state.chart.scale = d.cscale; persist();
+    view.querySelectorAll('[data-cscale]').forEach(x => x.setAttribute('aria-pressed', x.dataset.cscale === d.cscale));
+    charts[0]?.priceScale('right').applyOptions({ mode: { lin: 0, log: 1, pct: 2 }[d.cscale], autoScale: true });
+    return;
+  }
+  if (d.cview === 'reset') {
+    const t = location.hash.slice(4);
+    for (const c of charts) c.priceScale('right').applyOptions({ autoScale: true });
+    if (HIST.has(t)) setRange(state.chart.range, HIST.get(t).d);
+    return;
+  }
+  if (d.cview === 'full') { toggleFull(); return; }
   if (d.tg) {
     state.chart[d.tg] = !state.chart[d.tg]; persist();
     b.setAttribute('aria-pressed', state.chart[d.tg]);
