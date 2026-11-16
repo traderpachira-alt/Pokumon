@@ -17,6 +17,8 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
   dönüş noktaları, 1 yıllık hacim profili (POC/VAH/VAL), 52 hafta, SMA200/50, haftalık SMA50, aylık pivot, kapanmamış
   boşluklar ve yuvarlak sayılar yarım ATR toleransla bölgelere birleştirilir; ağırlıklı skor (≥ 10 güçlü) ve kesişim
   sayısı. Grafikte katman, hisse sayfasında tablo, taramada uzaklık/güç sütunları ve hazır taramalar, portföyde destek.
+- **Sütun seçimi:** her sekmede "☰ Sütunlar" ile sütun gizle/göster, diğer sekmelerden ya da ek alanlardan sütun ekle;
+  sekme başına saklanır, "Varsayılana dön" ile sıfırlanır.
 - **Kayıtlı taramalar:** filtre + endeks + sektör + hazır tarama kombinasyonunu adıyla kaydet, tek dokunuşla aç.
 - **Hisse detayı:** mum grafik + hacim; katmanlar: SMA20/50/200, VWMA20, Bollinger, Ichimoku, Supertrend;
   alt paneller: RSI, Stoch RSI, MACD, Fisher, ATR. Getiriler, 52 haftalık aralık, teknik özet,

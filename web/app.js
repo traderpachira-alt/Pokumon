@@ -389,10 +389,11 @@ function multiSelect(key, allLabel, unit, options, searchable) {
 // Tabloyu ve sayacı yenile (araç çubuğunu yeniden çizmeden; açık paneller ve odak korunur)
 function refreshResults() {
   const rows = sorted(filtered());
-  view.querySelector('.tablewrap').innerHTML = rows.length ? tableHtml(rows, VIEWS[state.view].cols) : '<p class="empty">Bu koşullara uyan hisse yok.</p>';
+  view.querySelector('.tablewrap').innerHTML = rows.length ? tableHtml(rows, colsFor(state.view)) : '<p class="empty">Bu koşullara uyan hisse yok.</p>';
   view.querySelector('.count b').textContent = rows.length;
   view.querySelectorAll('.ms').forEach(m => {
     const k = m.dataset.ms;
+    if (k === 'cols') { m.querySelector('.ms-lbl').textContent = `☰ Sütunlar (${colsFor(state.view).length})`; m.classList.toggle('on', colsCustom(state.view)); return; }
     m.querySelector('.ms-lbl').textContent = msLabel(k, m.dataset.all, m.dataset.unit);
     m.classList.toggle('on', state[k].length > 0);
   });
@@ -405,6 +406,39 @@ function closeMs() {
 }
 document.addEventListener('click', e => { if (msOpen && !e.target.closest?.('.ms')) closeMs(); });
 
+/* Sütun seçimi: her sekme için ayrı (state.cols[görünüm]); varsayılan VIEWS tanımı. Hisse kodu her zaman görünür. */
+const colLabel = k => (FIELDS[k] || TEXTCOLS[k])?.label || k;
+const colsFor = v => { const c = state.cols?.[v]; return Array.isArray(c) ? c.filter(k => FIELDS[k] || TEXTCOLS[k]) : VIEWS[v].cols; };
+const colsCustom = v => Array.isArray(state.cols?.[v]);
+function setCols(v, list) {
+  const def = VIEWS[v].cols, set = new Set(list);
+  // Sıra: önce sekmenin varsayılan sırası, sonra eklenen diğer sütunlar eklendikleri sırayla
+  const ordered = [...def.filter(k => set.has(k)), ...list.filter(k => !def.includes(k))];
+  state.cols ||= {};
+  if (ordered.length === def.length && ordered.every((k, i) => k === def[i])) delete state.cols[v]; else state.cols[v] = ordered;
+}
+function colsPanel() {
+  const v = state.view, cur = new Set(colsFor(v)), open = msOpen === 'cols', def = VIEWS[v].cols;
+  const others = Object.entries(VIEWS).filter(([id]) => id !== v).map(([id, vw]) => [vw.label, vw.cols.filter(k => !def.includes(k))]);
+  const inViews = new Set(Object.values(VIEWS).flatMap(x => x.cols));
+  const loose = Object.keys(FIELDS).filter(k => !inViews.has(k));
+  const seen = new Set(def);
+  const group = (title, keys) => { keys = keys.filter(k => !seen.has(k) && (seen.add(k), true)); return keys.length ? `<div class="ms-grp">${title}</div>` + keys.map(k => `<label><input type="checkbox" value="${k}"${cur.has(k) ? ' checked' : ''}> <span>${esc(colLabel(k))}</span></label>`).join('') : ''; };
+  return `<div class="ms${colsCustom(v) ? ' on' : ''}" data-ms="cols">
+    <button type="button" class="btn ms-btn" data-mstoggle="cols" aria-haspopup="true" aria-expanded="${open}" title="Tabloda görünecek sütunları seçin"><span class="ms-lbl">☰ Sütunlar (${cur.size})</span> ▾</button>
+    <div class="ms-panel colpanel"${open ? '' : ' hidden'}>
+      <input type="search" class="ms-q" placeholder="Sütun ara…" aria-label="Sütun ara" autocomplete="off">
+      <div class="ms-list">
+        <div class="ms-grp">${VIEWS[v].label} sekmesi</div>
+        ${def.map(k => `<label><input type="checkbox" value="${k}"${cur.has(k) ? ' checked' : ''}> <span>${esc(colLabel(k))}</span></label>`).join('')}
+        ${others.map(([t, keys]) => group(`Diğer · ${t}`, keys)).join('')}
+        ${group('Diğer · ek alanlar', loose)}
+      </div>
+      <div class="ms-foot"><button type="button" class="btn" data-colsreset="1">Varsayılana dön</button><button type="button" class="btn primary" data-msclose="1">Tamam</button></div>
+    </div>
+  </div>`;
+}
+
 function renderScreener() {
   destroyCharts();
   document.title = 'Tahta';
@@ -412,7 +446,7 @@ function renderScreener() {
   const numericKeys = Object.keys(FIELDS).filter(k => !FIELDS[k].nofilter);
   const counts = Object.fromEntries(PRESETS.map(p => [p.id, DATA.stocks.filter(p.test).length]));
   const rows = sorted(filtered());
-  const cols = VIEWS[state.view].cols;
+  const cols = colsFor(state.view);
   const preset = PRESETS.find(p => p.id === state.preset);
 
   view.innerHTML = `
@@ -434,6 +468,7 @@ function renderScreener() {
       <select id="indexSel" class="btn">${[['', 'Tüm hisseler'], ['30', 'BIST 30'], ['50', 'BIST 50'], ['100', 'BIST 100']].map(([v, l]) => `<option value="${v}"${v === state.index ? ' selected' : ''}>${l}</option>`).join('')}</select>
       ${multiSelect('markets', 'Tüm pazarlar', 'pazar', MARKET_OPTS.map(([v, l]) => [v, l, DATA.stocks.filter(x => x.mkt === v).length]), false)}
       ${multiSelect('sectors', 'Tüm sektörler', 'sektör', sectors.map(v => [v, v, DATA.stocks.filter(x => x.sector === v).length]), true)}
+      ${colsPanel()}
       <label class="btn chk"><input type="checkbox" id="hideTedbir"${state.hideTedbir ? ' checked' : ''}> Tedbirlileri gizle</label>
       <button type="button" class="btn" id="addFilter">+ Filtre ekle</button>
       <span class="count"><b class="num">${rows.length}</b> / ${DATA.stocks.length} hisse${preset?.hint ? ` · ${esc(preset.hint)}` : ''}</span>
@@ -592,7 +627,7 @@ async function renderDetail(t) {
   ${isIdx ? '' : '<section class="panel" id="divPanel"><h2>Temettü geçmişi</h2><p class="muted">Yükleniyor…</p></section>'}
 
   ${peers.length > 1 ? `<section class="panel peers"><h2>${esc(s.sector)} sektöründeki hisseler</h2>
-    <div class="tablewrap">${tableHtml(sorted(peers), VIEWS[state.view].cols, { sortable: false, highlight: t })}</div></section>` : ''}`;
+    <div class="tablewrap">${tableHtml(sorted(peers), colsFor(state.view), { sortable: false, highlight: t })}</div></section>` : ''}`;
 
   try {
     const h = await loadHist(t);
@@ -1663,6 +1698,7 @@ view.addEventListener('click', e => {
   }
   if (d.msclear) { state[d.msclear] = []; persist(); b.closest('.ms').querySelectorAll('input[type=checkbox]').forEach(c => { c.checked = false; }); refreshResults(); return; }
   if (d.msclose) { closeMs(); return; }
+  if (d.colsreset) { if (state.cols) delete state.cols[state.view]; persist(); renderScreener(); return; }
   // Portföy
   if (d.pfaddsym) { pfOpen('temettu', d.pfaddsym); pfDelArmed = null; location.hash = '#/portfoy'; return; }
   if (d.pfadd) { pfOpen(d.pfadd); pfDelArmed = null; renderPortfolio(); window.scrollTo(0, 0); $('#pfSym')?.focus(); return; }
@@ -1742,6 +1778,12 @@ view.addEventListener('change', e => {
   const ms = e.target.closest('.ms');
   if (ms && e.target.type === 'checkbox') {
     const k = ms.dataset.ms, v = e.target.value;
+    if (k === 'cols') {
+      const cur = colsFor(state.view);
+      if (!e.target.checked && cur.length <= 1) { e.target.checked = true; return; } // en az bir sütun kalsın
+      setCols(state.view, e.target.checked ? [...cur, v] : cur.filter(x => x !== v));
+      persist(); refreshResults(); return;
+    }
     state[k] = e.target.checked ? [...new Set([...state[k], v])] : state[k].filter(x => x !== v);
     persist(); refreshResults(); return;
   }
@@ -1766,7 +1808,7 @@ view.addEventListener('input', e => {
   state.filters[+e.target.closest('.frow').dataset.i].value = e.target.value;
   persist();
   const rows = sorted(filtered());
-  view.querySelector('.tablewrap').innerHTML = rows.length ? tableHtml(rows, VIEWS[state.view].cols) : '<p class="empty">Bu koşullara uyan hisse yok.</p>';
+  view.querySelector('.tablewrap').innerHTML = rows.length ? tableHtml(rows, colsFor(state.view)) : '<p class="empty">Bu koşullara uyan hisse yok.</p>';
   view.querySelector('.count b').textContent = rows.length;
 });
 
