@@ -192,6 +192,140 @@ def div_metrics(df: pd.DataFrame) -> dict:
     return out
 
 
+# ----------------------------------------------------------------------------
+# Destek / direnç: confluence (kesişim) bölgeleri
+# ----------------------------------------------------------------------------
+SR_W = {  # kaynak kodu -> ağırlık (uzun dönem = daha güçlü)
+    "Yh": 4, "Yl": 4, "Ye": 3, "Qh": 3, "Ql": 3, "Qe": 2.25, "Mh": 2, "Ml": 2, "Me": 1.5, "Wh": 1, "Wl": 1, "We": 0.75,
+    "Yo": 2.5, "Mo": 1.25, "Wo": 0.75, "SWH": 1.5, "SWL": 1.5, "POC": 3, "VAH": 2, "VAL": 2, "52H": 2.5, "52L": 2.5,
+    "S200": 2, "S50": 1.5, "WS50": 2, "PP": 1.25, "PS1": 1, "PR1": 1, "GAP": 1, "RND": 0.5,
+}
+
+
+def _period_levels(df: pd.DataFrame, rule: str, key: str, completed: bool) -> list[tuple[float, str]]:
+    """Önceki tamamlanmış dönemin yüksek/düşük/orta seviyeleri + içinde bulunulan dönemin açılışı."""
+    g = df.resample(rule).agg({"Open": "first", "High": "max", "Low": "min", "Close": "last"}).dropna()
+    if len(g) < 2:
+        return []
+    prev = g.iloc[-1] if completed else g.iloc[-2]
+    out = [(prev.High, f"{key}h"), (prev.Low, f"{key}l"), ((prev.High + prev.Low) / 2, f"{key}e")]
+    if not completed and key in ("W", "M", "Y"):
+        out.append((g.iloc[-1].Open, f"{key}o"))
+    return out
+
+
+def _volume_profile(h, lo, v, bins=50):
+    top, bot = float(np.nanmax(h)), float(np.nanmin(lo))
+    if not (top > bot):
+        return []
+    edges = np.linspace(bot, top, bins + 1)
+    prof = np.zeros(bins)
+    for hi_, lo_, vol in zip(h, lo, v):
+        if not (vol > 0) or not np.isfinite(hi_) or not np.isfinite(lo_):
+            continue
+        i0 = min(bins - 1, max(0, int((lo_ - bot) / (top - bot) * bins)))
+        i1 = min(bins - 1, max(0, int((hi_ - bot) / (top - bot) * bins)))
+        prof[i0:i1 + 1] += vol / (i1 - i0 + 1)
+    if prof.sum() <= 0:
+        return []
+    mid = (edges[:-1] + edges[1:]) / 2
+    poc = int(prof.argmax())
+    lo_i = hi_i = poc
+    acc, total = prof[poc], prof.sum()
+    while acc < 0.7 * total and (lo_i > 0 or hi_i < bins - 1):  # değer alanı: POC'tan büyük komşuya doğru genişle
+        up = prof[hi_i + 1] if hi_i < bins - 1 else -1
+        dn = prof[lo_i - 1] if lo_i > 0 else -1
+        if up >= dn:
+            hi_i += 1; acc += up
+        else:
+            lo_i -= 1; acc += dn
+    return [(mid[poc], "POC"), (edges[hi_i + 1], "VAH"), (edges[lo_i], "VAL")]
+
+
+def sr_metrics(df: pd.DataFrame) -> dict:
+    """Aday seviyeleri toplar, ATR toleransıyla bölgelere birleştirir, ağırlık ve kesişim sayısıyla puanlar.
+    Döner: sup/res (en güçlü 3 bölge, yakından uzağa) + en yakın destek/dirence uzaklık."""
+    out = {"srSup": [], "srRes": [], "supDist": None, "resDist": None, "supN": None, "resN": None, "supS": None, "resS": None, "supLvl": None}
+    if len(df) < 120:
+        return out
+    c, h, lo, v = (df[k].to_numpy(float) for k in ("Close", "High", "Low", "Volume"))
+    p, last_day = c[-1], df.index[-1]
+    atr = rma(true_range(h, lo, c), 14)[-1]
+    tol = max(0.5 * atr if np.isfinite(atr) else 0, 0.005 * p)
+    nb = last_day + pd.offsets.BDay(1)
+    cands: list[tuple[float, str]] = []
+    cands += _period_levels(df, "W-FRI", "W", last_day.weekday() == 4)
+    cands += _period_levels(df, "ME", "M", nb.month != last_day.month)
+    cands += _period_levels(df, "QE", "Q", nb.quarter != last_day.quarter)
+    cands += _period_levels(df, "YE", "Y", nb.year != last_day.year)
+    # Haftalık dönüş noktaları (2 yıl, iki yanda 2 bar)
+    w = df.resample("W-FRI").agg({"High": "max", "Low": "min", "Close": "last"}).dropna().iloc[-104:]
+    wh, wl = w["High"].to_numpy(), w["Low"].to_numpy()
+    for i in range(2, len(w) - 2):
+        if wh[i] == max(wh[i - 2:i + 3]):
+            cands.append((wh[i], "SWH"))
+        if wl[i] == min(wl[i - 2:i + 3]):
+            cands.append((wl[i], "SWL"))
+    # Hacim profili (1 yıl), 52 hafta, ortalamalar
+    y1 = slice(-252, None)
+    cands += _volume_profile(h[y1], lo[y1], v[y1])
+    cands += [(np.nanmax(h[y1]), "52H"), (np.nanmin(lo[y1]), "52L")]
+    for n, key in ((200, "S200"), (50, "S50"), (250, "WS50")):
+        if len(c) >= n:
+            cands.append((c[-n:].mean(), key))
+    # Aylık klasik pivot (önceki ay)
+    mo = df.resample("ME").agg({"High": "max", "Low": "min", "Close": "last"}).dropna()
+    if len(mo) >= 2:
+        pm = mo.iloc[-1] if nb.month != last_day.month else mo.iloc[-2]
+        pp = (pm.High + pm.Low + pm.Close) / 3
+        cands += [(pp, "PP"), (2 * pp - pm.High, "PS1"), (2 * pp - pm.Low, "PR1")]
+    # Kapanmamış boşluklar (1 yıl)
+    hh, ll = h[y1], lo[y1]
+    for i in range(1, len(hh)):
+        if ll[i] > hh[i - 1] * 1.005 and np.nanmin(ll[i:]) > hh[i - 1]:
+            cands.append(((ll[i] + hh[i - 1]) / 2, "GAP"))
+        elif hh[i] < ll[i - 1] * 0.995 and np.nanmax(hh[i:]) < ll[i - 1]:
+            cands.append(((hh[i] + ll[i - 1]) / 2, "GAP"))
+    # Yuvarlak sayılar
+    m = 10 ** math.floor(math.log10(p))
+    step = m / 2 if p / m < 3 else m
+    k = math.ceil(p * 0.7 / step)
+    while k * step <= p * 1.3:
+        cands.append((k * step, "RND")); k += 1
+    cands = sorted((float(x), s) for x, s in cands if np.isfinite(x) and p * 0.7 <= x <= p * 1.3)
+    # Bölgelere birleştir: bir öncekine tol'dan yakın ve bölge genişliği 2·tol'u aşmıyorsa aynı bölge
+    zones, cur = [], []
+    for x, src in cands:
+        if cur and (x - cur[-1][0] > tol or x - cur[0][0] > 2 * tol):
+            zones.append(cur); cur = []
+        cur.append((x, src))
+    if cur:
+        zones.append(cur)
+    res_z = []
+    for z in zones:
+        xs = [x for x, _ in z]
+        wts = [SR_W[s] for _, s in z]
+        srcs = sorted({s for _, s in z}, key=lambda s: -SR_W[s])
+        # Kesişim sayısı = farklı YÖNTEM sayısı (haftalık tepe ve dip aynı yöntem: rol değişimi ağırlığa eklenir, sayıya değil)
+        n = len({"SW" if s in ("SWH", "SWL") else s for s in srcs if s != "RND"})
+        if n < 2:
+            continue  # tek yöntemli seviye "major" sayılmaz
+        mid = float(np.average(xs, weights=wts))
+        res_z.append({"lo": min(xs), "hi": max(xs), "m": mid, "s": round(sum(wts), 2), "n": n, "src": srcs})
+    sup = sorted([z for z in res_z if z["m"] < p], key=lambda z: -z["s"])[:3]
+    res = sorted([z for z in res_z if z["m"] >= p], key=lambda z: -z["s"])[:3]
+    sup.sort(key=lambda z: -z["m"]); res.sort(key=lambda z: z["m"])  # yakından uzağa
+    rnd = lambda x: round(x, 2 if x >= 1 else 4)  # noqa: E731
+    for z in sup + res:
+        z["lo"], z["hi"], z["m"] = rnd(z["lo"]), rnd(z["hi"]), rnd(z["m"])
+    out["srSup"], out["srRes"] = sup, res
+    if sup:
+        out["supDist"] = max(0.0, (p - sup[0]["hi"]) / p); out["supN"] = sup[0]["n"]; out["supS"] = sup[0]["s"]; out["supLvl"] = sup[0]["m"]
+    if res:
+        out["resDist"] = max(0.0, (res[0]["lo"] - p) / p); out["resN"] = res[0]["n"]; out["resS"] = res[0]["s"]
+    return out
+
+
 def pct(a, b):
     try:
         a, b = float(a), float(b)
@@ -797,6 +931,7 @@ def main():
         write_hist(hist_dir / f"{t}.json", df)
         m = metrics(df, idx)
         m.update(div_metrics(df))
+        m.update(sr_metrics(df))
         up = upcoming.get(t)
         if up:
             first = up[0]

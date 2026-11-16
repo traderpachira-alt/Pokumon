@@ -13,6 +13,10 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
 - **Temettü:** açıklanmış ama henüz ödenmemiş temettüler (tarihli ya da "tarih bekleniyor"), takvim yılı bazında bu yıl ve geçen yılın toplamı ve verimi (güncel fiyata göre), yıllık değişim,
   bu yılki ödeme sayısı, son ödeme, son 5 yılda kaç yıl ödediği, kesintisiz yıl, 5 yıllık ortalama verim, dağıtma oranı; hisse sayfasında ödeme geçmişi.
 - **Tedbir uyarısı:** tedbirli hissenin yanında ⚠; üzerine gelince/dokununca tedbirler.
+- **Destek / direnç (confluence):** önceki yıl/çeyrek/ay/hafta yüksek-düşük-orta (EQ), dönem açılışları, haftalık
+  dönüş noktaları, 1 yıllık hacim profili (POC/VAH/VAL), 52 hafta, SMA200/50, haftalık SMA50, aylık pivot, kapanmamış
+  boşluklar ve yuvarlak sayılar yarım ATR toleransla bölgelere birleştirilir; ağırlıklı skor (≥ 10 güçlü) ve kesişim
+  sayısı. Grafikte katman, hisse sayfasında tablo, taramada uzaklık/güç sütunları ve hazır taramalar, portföyde destek.
 - **Kayıtlı taramalar:** filtre + endeks + sektör + hazır tarama kombinasyonunu adıyla kaydet, tek dokunuşla aç.
 - **Hisse detayı:** mum grafik + hacim; katmanlar: SMA20/50/200, VWMA20, Bollinger, Ichimoku, Supertrend;
   alt paneller: RSI, Stoch RSI, MACD, Fisher, ATR. Getiriler, 52 haftalık aralık, teknik özet,

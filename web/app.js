@@ -76,11 +76,13 @@ const FIELDS = {
   fisher:    { label: 'Fisher',           f: fmt.num2, color: 1, title: 'Ehlers Fisher dönüşümü (9)' },
   atrPct:    { label: 'ATR %',            f: fmt.pctPlain, pct: 1, title: 'ATR 14 / fiyat: günlük ortalama oynaklık' },
   stDist:    { label: 'Supertrend farkı', f: fmt.pct, pct: 1, color: 1, title: 'Fiyatın Supertrend (10, 3) çizgisine uzaklığı' },
+  supDist:   { label: 'Destek uzaklığı', f: x => !ok(x) ? '—' : x === 0 ? 'bölgede' : '−' + F1.format(x * 100) + '%', pct: 1, title: 'En yakın major destek bölgesinin üst kenarına uzaklık (confluence)' },
+  resDist:   { label: 'Direnç uzaklığı', f: x => !ok(x) ? '—' : x === 0 ? 'bölgede' : '+' + F1.format(x * 100) + '%', pct: 1, title: 'En yakın major direnç bölgesinin alt kenarına uzaklık (confluence)' },
   vsVwma20:  { label: 'VWMA20 farkı',     f: fmt.pct, pct: 1, color: 1, title: 'Fiyatın 20 günlük hacim ağırlıklı ortalamaya uzaklığı' },
 };
 const VIEWS = {
   fiyat:    { label: 'Fiyat',    cols: ['_idx', 'last', 'chg1d', 'chg1w', 'chg1m', 'chg3m', 'chg1y', 'ytd', 'turnover', 'volRatio', 'mcap'] },
-  trend:    { label: 'Trend',    cols: ['_idx', 'last', 'chg1d', '_trend', '_st', '_ichi', '_cross', 'vsSma50', 'vsSma200', 'vsVwma20', 'stDist', 'distHi52', 'rs3m'] },
+  trend:    { label: 'Trend',    cols: ['_idx', 'last', 'chg1d', '_trend', '_st', '_ichi', '_cross', 'supDist', '_supStr', 'resDist', '_resStr', 'vsSma50', 'vsSma200', 'vsVwma20', 'stDist', 'distHi52', 'rs3m'] },
   momentum: { label: 'Momentum', cols: ['_idx', 'last', 'chg1d', 'rsi', 'stochK', 'macdPct', 'fisher', '_cross', 'volRatio', 'atrPct', 'volat', 'beta'] },
   temettu:  { label: 'Temettü',  cols: ['_idx', 'last', 'divYield', 'divCur', 'divYieldPrev', 'divPrev', 'divGrowth', 'divFreq', '_nextDiv', 'nextDivNet', 'lastDivDate', 'lastDivAmt', 'divYears5', 'divStreak', 'divAvg5', 'payout'] },
   temel:    { label: 'Temel',    cols: ['_idx', 'last', 'mcap', 'pe', 'pb', 'evEbitda', 'netMargin', 'roe', 'de', 'revGrowth', 'epsGrowth', 'divYield', 'freeFloat', '_sector'] },
@@ -97,6 +99,7 @@ const tierChip = s => {
   const mk = s.mkt ? `<span class="mk${s.mkt === 'YİP' ? ' risk' : ''}" title="${MKT_NAME[s.mkt] || s.mkt}">${s.mkt}</span>` : '';
   return `<span class="ixmk">${ix}${mk}</span>`;
 };
+const SR_STRONG = 10; // güçlü bölge eşiği (bölgelerin ~en güçlü %20'si)
 const TEXTCOLS = {
   _idx:    { label: 'Endeks · Pazar', sortKey: s => tierRank(s) * 10 + (MKT_RANK[s.mkt] ?? 9), cell: tierChip, title: 'Hissenin yer aldığı en dar endeks ve işlem gördüğü pazar' },
   _trend:  { label: 'Trend',  sortKey: s => ({ up: 2, flat: 1, down: 0 })[s.trend] ?? null,
@@ -114,6 +117,10 @@ const TEXTCOLS = {
                : s.nextDivDate ? `<span class="chip up">${fmt.date(s.nextDivDate)}</span>${s.divUpcoming.length > 1 ? ` <span class="muted">+${s.divUpcoming.length - 1}</span>` : ''}`
                : '<span class="chip warn" title="Temettü kararı alındı, ödeme tarihi henüz açıklanmadı">Tarih bekleniyor</span>',
              title: 'Açıklanmış ama henüz ödenmemiş temettü (temettuhisseleri.com)' },
+  _supStr: { label: 'Destek gücü', sortKey: s => s.supS ?? null, title: 'En yakın destek bölgesinin skoru ve kesişen yöntem sayısı; skor ≥ 10 güçlü',
+             cell: s => ok(s.supS) ? `<span class="${s.supS >= SR_STRONG ? 'up' : 'muted'}"><b>${F1.format(s.supS)}</b> · ${s.supN}×</span>` : '—' },
+  _resStr: { label: 'Direnç gücü', sortKey: s => s.resS ?? null, title: 'En yakın direnç bölgesinin skoru ve kesişen yöntem sayısı; skor ≥ 10 güçlü',
+             cell: s => ok(s.resS) ? `<span class="${s.resS >= SR_STRONG ? 'down' : 'muted'}"><b>${F1.format(s.resS)}</b> · ${s.resN}×</span>` : '—' },
   _sector: { label: 'Sektör', sortKey: s => s.sector || '', cell: s => esc(s.sector || '—') },
 };
 const val = (s, k) => (k in TEXTCOLS ? TEXTCOLS[k].sortKey(s) : s[k]);
@@ -192,6 +199,8 @@ const PRESETS = [
   { id: 'macdUp',   label: 'MACD al',          test: s => s.macdCross === 'up', hint: 'Son 3 günde MACD sinyal çizgisini yukarı kesti' },
   { id: 'stUp',     label: 'Supertrend al',    test: s => s.stFlip === 'up', hint: 'Son 3 günde Supertrend (10, 3) yukarı döndü', sort: ['turnover', -1] },
   { id: 'fisherUp', label: 'Fisher al',        test: s => s.fisherCross === 'up' && s.fisher < 0, hint: 'Son 2 günde Fisher, tetik çizgisini sıfırın altında yukarı kesti', sort: ['fisher', 1] },
+  { id: 'nearSup',  label: 'Güçlü desteğe yakın', test: s => s.supDist <= 0.03 && s.supS >= SR_STRONG, hint: 'En yakın destek bölgesi %3 içinde ve güçlü (skor ≥ 10)', sort: ['supDist', 1] },
+  { id: 'nearRes',  label: 'Güçlü dirence yakın', test: s => s.resDist <= 0.02 && s.resS >= SR_STRONG, hint: 'En yakın direnç bölgesi %2 içinde ve güçlü (skor ≥ 10): kırılım takibi', sort: ['resDist', 1] },
   { id: 'stochLow', label: 'Stoch RSI dipte',  test: s => s.stochK < 20, hint: 'Stokastik RSI %K < 20', sort: ['stochK', 1] },
   { id: 'cloudUp',  label: 'Bulut üstünde',    test: s => s.ichi === 'above' && s.tkCross !== 'down', hint: 'Fiyat Ichimoku bulutunun üstünde', sort: ['rs3m', -1] },
   { id: 'high52',   label: '52H zirvesinde',   test: s => s.distHi52 > -0.03, hint: '52 haftalık zirveye %3\'ten yakın', sort: ['distHi52', -1] },
@@ -452,13 +461,45 @@ const RANGES = { '1A': 1, '3A': 3, '6A': 6, '1Y': 12, '2Y': 24 };
 // Ana grafik katmanları: [anahtar, etiket, renk değişkeni]
 const OVERLAYS = [
   ['sma20', 'SMA20', '--c-sma20'], ['sma50', 'SMA50', '--c-sma50'], ['sma200', 'SMA200', '--c-sma200'],
-  ['vwma', 'VWMA20', '--c-vwma'], ['bb', 'Bollinger', '--c-bb'], ['ichi', 'Ichimoku', '--c-ichi'], ['st', 'Supertrend', '--up'],
+  ['vwma', 'VWMA20', '--c-vwma'], ['bb', 'Bollinger', '--c-bb'], ['ichi', 'Ichimoku', '--c-ichi'], ['st', 'Supertrend', '--up'], ['sr', 'Destek/Direnç', '--down'],
 ];
 // Alt paneller: [anahtar, düğme etiketi, panel başlığı]
 const PANES = [
   ['rsi', 'RSI', 'RSI 14'], ['stoch', 'Stoch RSI', 'Stoch RSI 14, 14, 3, 3'], ['macd', 'MACD', 'MACD 12, 26, 9'],
   ['fisher', 'Fisher', 'Fisher 9'], ['atr', 'ATR', 'ATR 14'],
 ];
+
+/* Destek / direnç (confluence) kaynak adları */
+const SR_LABELS = {
+  Yh: 'Önceki yıl yükseği', Yl: 'Önceki yıl düşüğü', Ye: 'Önceki yıl ortası', Qh: 'Önceki çeyrek yükseği', Ql: 'Önceki çeyrek düşüğü', Qe: 'Önceki çeyrek ortası',
+  Mh: 'Önceki ay yükseği', Ml: 'Önceki ay düşüğü', Me: 'Önceki ay ortası', Wh: 'Önceki hafta yükseği', Wl: 'Önceki hafta düşüğü', We: 'Önceki hafta ortası',
+  Yo: 'Yıllık açılış', Mo: 'Aylık açılış', Wo: 'Haftalık açılış', SWH: 'Haftalık tepe', SWL: 'Haftalık dip',
+  POC: 'Hacim profili POC', VAH: 'Değer alanı üstü (VAH)', VAL: 'Değer alanı altı (VAL)', '52H': '52 hafta zirvesi', '52L': '52 hafta dibi',
+  S200: 'SMA200', S50: 'SMA50', WS50: 'Haftalık SMA50', PP: 'Aylık pivot', PS1: 'Aylık S1', PR1: 'Aylık R1', GAP: 'Kapanmamış boşluk', RND: 'Yuvarlak sayı',
+};
+const srWidth = z => z.s >= 12 ? 4 : z.s >= 8 ? 3 : z.s >= 5 ? 2 : 1;
+function srPanelHtml(s) {
+  const zs = [...(s.srRes || []).slice().reverse().map((z, i, a) => ({ ...z, kind: 'R', i: a.length - i })), ...(s.srSup || []).map((z, i) => ({ ...z, kind: 'D', i: i + 1 }))];
+  if (!zs.length) return '';
+  const maxS = Math.max(...zs.map(z => z.s));
+  const row = z => {
+    const dist = z.kind === 'R' ? (z.lo - s.last) / s.last : (z.hi - s.last) / s.last;
+    const inZone = s.last >= z.lo && s.last <= z.hi;
+    return `<tr class="${z.kind === 'R' ? 'srR' : 'srD'}"><td class="tk"><span class="chip ${z.kind === 'R' ? 'down' : 'up'}">${z.kind === 'R' ? 'Direnç' : 'Destek'} ${z.i}</span></td>
+      <td>${fmt.price(z.lo)}${z.hi !== z.lo ? ' – ' + fmt.price(z.hi) : ''}</td><td class="${inZone ? '' : cls(dist)}">${inZone ? 'bölgede' : fmt.pct(dist)}</td>
+      <td class="txt"><span class="srbar"><i style="width:${z.s / maxS * 100}%"></i></span> <span class="num${z.s >= SR_STRONG ? ' strong' : ''}">${F1.format(z.s)}</span>${z.s >= SR_STRONG ? ' <span class="chip ' + (z.kind === 'R' ? 'down' : 'up') + '">güçlü</span>' : ''}</td><td>${z.n}×</td>
+      <td class="txt srsrc">${z.src.map(c => `<span class="tag">${SR_LABELS[c] || c}</span>`).join('')}</td></tr>`;
+  };
+  return `<section class="panel srpanel"><h2>Destek / direnç bölgeleri <span class="muted">· confluence</span></h2>
+    <div class="tablewrap flat"><table class="grid"><thead><tr><th class="tk">Bölge</th><th>Aralık ₺</th><th>Uzaklık</th><th title="Kesişen seviyelerin ağırlık toplamı (uzun dönem seviyeleri daha ağır)">Güç</th><th title="Kesişen farklı yöntem sayısı">Kesişim</th><th>Kesişen seviyeler</th></tr></thead><tbody>
+      ${zs.filter(z => z.kind === 'R').map(row).join('')}
+      <tr class="srnow"><td class="tk"><b>Fiyat</b></td><td><b>${fmt.price(s.last)}</b></td><td colspan="4"></td></tr>
+      ${zs.filter(z => z.kind === 'D').map(row).join('')}
+    </tbody></table></div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Önceki yıl/çeyrek/ay/hafta yüksek-düşük-orta seviyeleri, dönem açılışları, haftalık dönüş noktaları, 1 yıllık hacim profili, 52 hafta, ortalamalar, aylık pivot ve kapanmamış boşluklar
+      yarım ATR toleransla bölgelere birleştirilir. Güç: kesişen seviyelerin ağırlık toplamı (uzun dönem daha ağır); skor ≥ 10 güçlü sayılır. En az 2 farklı yöntemin kesiştiği, fiyatın ±%30'u içindeki en güçlü 3 destek ve 3 direnç gösterilir.</p>
+  </section>`;
+}
 
 async function renderDetail(t) {
   destroyCharts();
@@ -547,6 +588,7 @@ async function renderDetail(t) {
     </section>
   </div>
 
+  ${isIdx ? '' : srPanelHtml(s)}
   ${isIdx ? '' : '<section class="panel" id="divPanel"><h2>Temettü geçmişi</h2><p class="muted">Yükleniyor…</p></section>'}
 
   ${peers.length > 1 ? `<section class="panel peers"><h2>${esc(s.sector)} sektöründeki hisseler</h2>
@@ -643,6 +685,16 @@ function drawCharts(h) {
     addLine(bb.upper, css('--c-bb'), 1, 2); addLine(bb.lower, css('--c-bb'), 1, 2); addLine(bb.mid, css('--c-bb'), 1, 1);
   }
   if (C.vwma) ma.vwma = addLine(vwma(h.c, h.v, 20), css('--c-vwma'));
+  const cur = BY.get(location.hash.slice(4));
+  if (C.sr && cur) {
+    // Confluence bölgeleri: orta çizgi (kalınlık = güç) + noktalı kenarlar
+    const zone = (z, color, label) => {
+      candle.createPriceLine({ price: z.m, color, lineWidth: srWidth(z), lineStyle: 0, axisLabelVisible: true, title: `${label} · ${z.n}×` });
+      if (z.hi - z.lo > 0) for (const x of [z.lo, z.hi]) candle.createPriceLine({ price: x, color: color + '88', lineWidth: 1, lineStyle: 1, axisLabelVisible: false, title: '' });
+    };
+    (cur.srSup || []).forEach((z, i) => zone(z, up, `D${i + 1}`));
+    (cur.srRes || []).forEach((z, i) => zone(z, down, `R${i + 1}`));
+  }
   if (C.ichi) {
     const ic = ichimoku(h.h, h.l);
     addLine(ic.tenkan, css('--c-ichi'), 1);
@@ -1152,7 +1204,7 @@ function renderPortfolio() {
         <td>${fmt.pctPlain(r.s?.divYield)}</td><td>${r.s?.divCur && r.c.avg ? fmt.pctPlain(r.s.divCur / r.c.avg) : '—'}</td><td>${r.s?.divCur ? fmt.big(r.s.divCur * r.c.qty) : '—'}</td>
         <td class="txt">${r.s?.divUpcoming?.length ? `${r.s.nextDivDate ? `<span class="chip up">${fmt.date(r.s.nextDivDate)}</span>` : '<span class="chip warn">Tarih bekleniyor</span>'} <span class="num">${fmt.big(r.s.nextDivNet * r.c.qty)} ₺ net</span>` : '<span class="muted">—</span>'}</td>${actions(r)}</tr>${histRow(r, 13)}`).join('')}
     </tbody></table>`,
-    trend: list => `<table class="grid"><thead><tr><th class="tk">Hisse</th>${commonHead()}<th>Durum</th><th>Supertrend</th><th>Trend</th><th>RSI</th><th title="Supertrend çizgisi: olası stop seviyesi">ST stop</th><th></th></tr></thead><tbody>
+    trend: list => `<table class="grid"><thead><tr><th class="tk">Hisse</th>${commonHead()}<th>Durum</th><th>Supertrend</th><th>Trend</th><th>RSI</th><th title="Supertrend çizgisi: olası stop seviyesi">ST stop</th><th title="En yakın major destek bölgesi (confluence) ve uzaklığı">Destek</th><th></th></tr></thead><tbody>
       ${list.map(r => {
         const s = r.s, sig = s ? exitSignals(s) : { strong: [], weak: [] };
         const status = !s ? '—' : sig.strong.length ? `<span class="chip down" title="${esc([...sig.strong, ...sig.weak].join(' · '))}">Çıkış sinyali</span> <small class="muted">${esc(sig.strong[0])}</small>`
@@ -1160,7 +1212,7 @@ function renderPortfolio() {
         return `<tr data-t="${r.p.sym}" class="${sig.strong.length ? 'exit' : ''}"><td class="tk">${name(r)}${note(r)}</td>${common(r)}
           <td class="txt">${status}</td><td class="txt">${s?.stTrend ? `<span class="chip ${ST[s.stTrend][1]}">${ST[s.stTrend][0]}</span>` : '—'}</td>
           <td class="txt">${s?.trend ? `<span class="chip ${TREND[s.trend][1]}">${TREND[s.trend][0]}</span>` : '—'}</td><td>${fmt.num(s?.rsi)}</td>
-          <td>${s && ok(s.stDist) ? fmt.price(s.last / (1 + s.stDist)) : '—'}</td>${actions(r)}</tr>${histRow(r, 14)}`;
+          <td>${s && ok(s.stDist) ? fmt.price(s.last / (1 + s.stDist)) : '—'}</td><td>${s?.supLvl ? `${fmt.price(s.supLvl)} <small class="${s.supS >= SR_STRONG ? 'up' : 'muted'}">${FIELDS.supDist.f(s.supDist)} · skor ${F1.format(s.supS)}</small>` : '—'}</td>${actions(r)}</tr>${histRow(r, 15)}`;
       }).join('')}
     </tbody></table>`,
     kripto: list => `<table class="grid"><thead><tr><th class="tk">Varlık</th>${commonHead('Miktar')}<th>Fiyat $</th><th>Gün</th><th></th></tr></thead><tbody>

@@ -360,3 +360,12 @@ textarea.code { width: 100%; font: 12px/1.4 var(--mono); border: 1px solid var(-
   border-radius: 12px; background: var(--down); color: #fff; font-size: 13px; box-shadow: 0 6px 24px #0003; }
 .syncbar span { flex: 1 1 260px; }
 .syncbar button { border: 0; border-radius: 8px; padding: 6px 12px; font-weight: 600; background: #fff; color: var(--down); }
+
+/* Destek / direnç (confluence) */
+.srpanel .grid td { vertical-align: middle; }
+.srpanel tr.srnow td { background: var(--sunk); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.srbar { display: inline-block; width: 70px; height: 6px; border-radius: 3px; background: var(--sunk); vertical-align: middle; overflow: hidden; }
+.srbar i { display: block; height: 100%; background: var(--accent); }
+.srsrc { white-space: normal !important; min-width: 260px; }
+.tag { display: inline-block; margin: 1px 3px 1px 0; padding: 0 6px; border-radius: 4px; background: var(--sunk); font: 11px var(--sans); color: var(--ink); white-space: nowrap; }
+.num.strong { font-weight: 600; }
