@@ -1,9 +1,9 @@
 import { destroyCharts } from './detail.js';
 import { view } from './dom.js';
-import { PF_CATS, pfId } from './pfcore.js';
-import { state } from './store.js';
+import { normalize } from './backup.js';
+import { state, ui } from './store.js';
 import { syncPanelHtml } from './sync.js';
-import { esc } from './util.js';
+import { esc, fmt } from './util.js';
 
 /* ============================================================
    Aktarma: izleme listesi ve kayıtlı taramaları kodla taşı
@@ -14,10 +14,7 @@ export const exportCode = () => 'T1.' + b64e(JSON.stringify({ w: state.watch, s:
 export function parseCode(code) {
   const m = String(code).trim().match(/(?:#\/aktar\/)?(T1\.[A-Za-z0-9_-]+)\s*$/);
   if (!m) throw new Error('Kod tanınmadı. "T1." ile başlayan kodun tamamını yapıştırın.');
-  const d = JSON.parse(b64d(m[1].slice(3)));
-  return { w: Array.isArray(d.w) ? d.w.filter(x => typeof x === 'string') : [], s: Array.isArray(d.s) ? d.s.filter(x => x && x.name) : [], c: Array.isArray(d.c) ? d.c : [],
-    p: Array.isArray(d.p) ? d.p.filter(x => x && x.id && x.sym && PF_CATS[x.cat] && (Array.isArray(x.txs) || Number.isFinite(x.qty)))
-      .map(x => Array.isArray(x.txs) ? x : { id: x.id, cat: x.cat, sym: x.sym, note: x.note || null, txs: [{ id: pfId(), type: 'buy', date: x.date || null, qty: x.qty, price: x.cost, fee: 0 }] }) : [] };
+  return normalize(JSON.parse(b64d(m[1].slice(3))));
 }
 export function renderTransfer(incoming) {
   destroyCharts();
@@ -51,5 +48,36 @@ export function renderTransfer(incoming) {
       <p class="muted" style="font-size:12px">Mevcut listeniz silinmez; yeni hisseler eklenir, aynı adlı taramalar güncellenir.</p>
     </section>
   </div>
+  ${backupPanelHtml()}
   ${syncPanelHtml()}`;
+}
+// Yedek dosyası paneli
+export function backupPanelHtml() {
+  const b = ui.backup;
+  const when = iso => iso ? new Date(iso).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' }) : 'tarihi bilinmiyor';
+  const loaded = b?.data ? `
+      <div class="note-ok" style="color:inherit">
+        <b>${esc(b.file)}</b> (${when(b.data.created)}): ${b.data.p.length} portföy varlığı
+        (${b.data.p.reduce((a, p) => a + p.txs.length, 0)} işlem), ${b.data.w.length} izleme hissesi, ${b.data.s.length} kayıtlı tarama.
+      </div>
+      <div class="row">
+        <button type="button" class="btn primary" data-backup="merge">Birleştir</button>
+        <button type="button" class="btn${b.armed ? ' danger' : ''}" data-backup="replace">${b.armed ? 'Eminim, tümünü değiştir' : 'Tümünü değiştir'}</button>
+        <button type="button" class="btn" data-backup="cancel">Vazgeç</button>
+      </div>
+      ${b.armed ? `<p class="down" style="font-size:13px;margin:0">Bu cihazdaki ${state.portfolio.length} portföy varlığı, ${state.watch.length} izleme hissesi ve ${state.saved.length} tarama silinip yedektekiyle değiştirilecek${b.sync ? ' (Gist\'e de yansır)' : ''}. Onaylamak için tekrar basın.</p>` : ''}
+      <p class="muted" style="font-size:12px;margin:0"><b>Birleştir</b>: mevcut kayıtlar korunur, yedekteki yeni kayıtlar eklenir, aynı kayıtlar yedektekiyle güncellenir.
+        <b>Tümünü değiştir</b>: bu cihazdaki veriler yedekteki hâline döner (yedekten sonra eklenenler silinir).</p>` : '';
+  return `<section class="panel backuppanel">
+    <h2>Yedek dosyası</h2>
+    <p class="muted" style="font-size:13px;margin:0">Portföyünüzü, izleme listenizi ve kayıtlı taramalarınızı bir dosyaya indirin; gerektiğinde geri yükleyin.
+      Dosya yalnızca sizde kalır.${state.lastBackup ? ` Son yedek: <b>${fmt.date(state.lastBackup.slice(0, 10))}</b>.` : ''}</p>
+    <div class="row">
+      <button type="button" class="btn primary" data-backup="download">Yedeği indir</button>
+      <label class="btn" for="backupFile">Yedekten yükle…</label>
+      <input type="file" id="backupFile" accept=".json,application/json" hidden>
+      <span id="backupMsg" role="status" class="${b?.err ? 'down' : b?.done ? 'up' : 'muted'}">${esc(b?.err || b?.done || '')}</span>
+    </div>
+    ${loaded}
+  </section>`;
 }

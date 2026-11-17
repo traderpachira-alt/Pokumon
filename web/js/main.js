@@ -8,9 +8,48 @@ import { alertMsg, coinSym, currentPrice, defaultFlow, pfHist, pfOpen, pfReadFor
 import { closeMs, colsFor, filtered, fitPanel, moveCol, refreshCols, refreshResults, renderScreener, screenOf, setCols, sorted, tableHtml } from './screener.js';
 import { listOf, persist, state, ui } from './store.js';
 import { sync, syncConnect, syncDisconnect, syncNow, syncOn } from './sync.js';
+import { backupJson, backupName, mergeData, parseBackup, replaceData } from './backup.js';
 import { parseCode, renderTransfer } from './transfer.js';
 
 addEventListener('online', () => { if (syncOn()) syncNow(); });
+/* ============================================================
+   Yedek dosyası: indir / yükle (birleştir ya da iki adımlı onayla tümünü değiştir)
+   ============================================================ */
+async function downloadBackup() {
+  const now = new Date(), name = backupName(now);
+  const file = new File([backupJson(now)], name, { type: 'application/json' });
+  state.lastBackup = now.toISOString(); persist();
+  // Telefonda paylaşım menüsü (Dosyalar'a kaydet, Drive…); masaüstünde doğrudan indirme
+  if (matchMedia('(pointer: coarse)').matches && navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: name }); ui.backup = { done: 'Yedek paylaşıldı.' }; renderTransfer(); return; }
+    catch (err) { if (err.name === 'AbortError') { renderTransfer(); return; } }
+  }
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(file), download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  ui.backup = { done: `${name} indirildi.` }; renderTransfer();
+}
+function readBackupFile(f) {
+  if (!f) return;
+  if (f.size > 5e6) { ui.backup = { err: 'Dosya çok büyük; Tahta yedeği olmayabilir.' }; renderTransfer(); return; }
+  f.text().then(text => { ui.backup = { file: f.name, data: parseBackup(text), sync: syncOn() }; })
+    .catch(err => { ui.backup = { err: err.message }; })
+    .finally(() => renderTransfer());
+}
+function backupAction(act) {
+  const b = ui.backup;
+  if (act === 'download') { downloadBackup(); return; }
+  if (act === 'cancel' || !b?.data) { ui.backup = null; renderTransfer(); return; }
+  if (act === 'merge') {
+    const r = mergeData(b.data); persist();
+    ui.backup = { done: `Birleştirildi: ${r.pAdded} portföy varlığı eklendi, ${r.pUpdated} güncellendi; ${r.watch} yeni izleme hissesi, ${r.saved} tarama.` };
+  } else if (act === 'replace') {
+    if (!b.armed) { b.armed = true; renderTransfer(); return; }
+    replaceData(b.data); persist();
+    ui.backup = { done: `Veriler yedekteki hâline döndü: ${state.portfolio.length} portföy varlığı, ${state.watch.length} izleme hissesi, ${state.saved.length} tarama.` };
+  }
+  renderTransfer();
+}
 /* ============================================================
    Olaylar
    ============================================================ */
@@ -58,18 +97,14 @@ view.addEventListener('click', e => {
     if (navigator.clipboard?.writeText) navigator.clipboard.writeText(el.value).then(done, fallback); else fallback();
     return;
   }
+  if (d.backup) { backupAction(d.backup); return; }
   if (b.id === 'importBtn') {
     const msg = $('#importMsg');
     try {
-      const d2 = parseCode($('#importCode').value);
-      const before = state.watch.length;
-      for (const t of d2.w) if (!state.watch.includes(t)) state.watch.push(t);
-      for (const sv of d2.s) { const i = state.saved.findIndex(x => x.name === sv.name); if (i >= 0) state.saved[i] = sv; else state.saved.push(sv); }
-      let pAdded = 0;
-      for (const pos of d2.p) { const i = state.portfolio.findIndex(x => x.id === pos.id); if (i >= 0) state.portfolio[i] = pos; else { state.portfolio.push(pos); pAdded++; } }
+      const r = mergeData(parseCode($('#importCode').value));
       persist();
       msg.className = 'up';
-      msg.textContent = `${state.watch.length - before} yeni izleme hissesi, ${d2.s.length} tarama ve ${pAdded} portföy varlığı eklendi (${d2.p.length - pAdded} güncellendi).`;
+      msg.textContent = `${r.watch} yeni izleme hissesi, ${r.saved} tarama ve ${r.pAdded} portföy varlığı eklendi (${r.pUpdated} güncellendi).`;
       if (location.hash.startsWith('#/aktar/')) history.replaceState(null, '', '#/aktar');
     } catch (e) {
       msg.className = 'down';
@@ -209,6 +244,7 @@ view.addEventListener('drop', e => {
   moveCol(k, after ? i + 1 : i); refreshCols();
 });
 view.addEventListener('change', e => {
+  if (e.target.id === 'backupFile') { readBackupFile(e.target.files?.[0]); return; }
   if (e.target.id === 'indexSel') { state.index = e.target.value; persist(); renderScreener(); return; }
   const ms = e.target.closest('.ms');
   if (ms && e.target.type === 'checkbox') {

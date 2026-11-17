@@ -30,4 +30,5 @@ export const ui = {
   pfForm: null,      // portföy: yeni varlık / kategori-not düzenleme formu
   txForm: null,      // portföy: alım-satım formu {pid, type, date, qty, price, fee, flow}
   pfDelArmed: null,  // iki dokunuşla silme: pozisyon ya da işlem kimliği
+  backup: null,      // Aktar: yüklenen yedek {file, data, armed} ya da sonuç mesajı {done|err}
 };

@@ -352,7 +352,11 @@ textarea.code { width: 100%; font: 12px/1.4 var(--mono); border: 1px solid var(-
 .pendcard { background: color-mix(in srgb, var(--up) 12%, var(--sunk)); }
 
 /* Bulut senkronizasyonu */
-.syncpanel { display: flex; flex-direction: column; gap: 10px; }
+.syncpanel, .backuppanel { display: flex; flex-direction: column; gap: 10px; }
+.backuppanel { margin-bottom: 16px; }
+.backuppanel p { margin: 0; }
+label.btn { cursor: pointer; display: inline-block; }
+.btn.danger { background: var(--down); border-color: var(--down); color: #fff; }
 .syncpanel p { margin: 0; }
 .steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .syncbar { position: fixed; z-index: 31; left: 50%; transform: translateX(-50%); top: calc(64px + env(safe-area-inset-top, 0px));
