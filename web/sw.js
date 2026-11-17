@@ -1,8 +1,9 @@
 // Uygulama dosyaları ve veri: önce ağ (her açılışta en güncel sürüm), ağ yoksa ya da çok yavaşsa önbellek.
 // İstekler tarayıcının HTTP önbelleğini atlayıp sunucuya doğrulatılır (değişmediyse sunucu 304 döner, hızlıdır).
 // Grafik kütüphanesi sabit sürümlü olduğu için önbellekten verilir.
-const VERSION = 'tahta-v3';
-const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'ind.js', 'manifest.webmanifest',
+const VERSION = 'tahta-v4';
+const SHELL = ['./', 'index.html', 'style.css', 'ind.js', 'manifest.webmanifest',
+  'js/util.js', 'js/dom.js', 'js/store.js', 'js/data.js', 'js/fields.js', 'js/tedbir.js', 'js/screener.js', 'js/detail.js', 'js/compare.js', 'js/transfer.js', 'js/pfcore.js', 'js/portfolio.js', 'js/sync.js', 'js/main.js',
   'vendor/lightweight-charts.standalone.production.js', 'icons/icon-192.png'];
 const NETWORK_TIMEOUT_MS = 5000;
 
