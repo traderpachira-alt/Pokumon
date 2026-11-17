@@ -51,10 +51,15 @@ export const FIELDS = {
   divYieldAvg:     { label: 'Bu yıl bağıl verim', f: fmt.pctPlain, pct: 1 },
   divYieldAvgPrev: { label: 'Geçen yıl bağıl verim', f: fmt.pctPlain, pct: 1 },
   lastDivYieldAvg: { label: 'Son ödeme bağıl verim', f: fmt.pctPlain, pct: 1, title: 'Bağıl verim: son temettü / önceki temettüden bu temettüye kadarki ortalama kapanış fiyatı' },
+  dsScore:   { label: 'Temettü güvenliği', f: x => !ok(x) ? '—' : `<span class="score ${x >= 70 ? 'hi' : x >= 50 ? 'mid' : 'lo'}">${x}</span>`, title: 'Temettü güvenlik skoru (0–100): dağıtma oranı, serbest nakit akışı karşılama, net borç/FAVÖK, süreklilik, kesinti geçmişi, özkaynak kârlılığı ve F-skoru. Döküm hisse sayfasında.' },
+  fScore:    { label: 'F-skoru', f: x => !ok(x) ? '—' : `<span class="score ${x >= 7 ? 'hi' : x >= 4 ? 'mid' : 'lo'}">${x}/9</span>`, title: 'Piotroski F-skoru (0–9): kârlılık, borçluluk/likidite ve verimlilikte 9 kriter, son 12 ay ile bir önceki yılın karşılaştırması. Bankalarda hesaplanmaz.' },
+  ttmYield:  { label: 'Son 12 ay verim', f: fmt.pctPlain, pct: 1, title: 'Son 365 günde ödenen hisse başı brüt temettü / güncel fiyat' },
+  yieldPct:  { label: 'Verim bandı', f: x => !ok(x) ? '—' : `<span class="score ${x >= 0.8 ? 'hi' : x >= 0.4 ? 'mid' : 'lo'}">%${Math.round(x * 100)}</span>`, pct: 1, title: 'Son 12 ay veriminin, hissenin kendi son 4 yıllık günlük verim geçmişindeki yüzdelik dilimi. %90 = geçmişte günlerin %90\'ında verim bugünkünden düşüktü (temettüye göre ucuz).' },
+  yieldMed:  { label: 'Medyan verim (4Y)', f: fmt.pctPlain, pct: 1, title: 'Son 12 ay veriminin son 4 yıllık medyanı' },
   divAvg5:   { label: '5Y ort. verim',    f: fmt.pctPlain, pct: 1, title: 'Son 5 tamamlanmış yılın ortalama yıllık temettüsü / güncel fiyat' },
   nextDivNet:   { label: 'Sıradaki tutar (net) ₺', f: fmt.price, title: 'Açıklanan sıradaki temettünün stopaj sonrası pay başı tutarı (temettuhisseleri.com)' },
   nextDivYield: { label: 'Sıradaki verim (net)',   f: fmt.pctPlain, pct: 1, title: 'Sıradaki net temettü / güncel fiyat' },
-  payout:    { label: 'Dağıtma oranı',    f: fmt.pctPlain, pct: 1, title: 'Son 12 ayda ödenen temettü / son 12 ay net kâr (İş Yatırım mali tabloları)' },
+  payout:    { label: 'Dağıtma oranı',    f: fmt.pctPlain, pct: 1, title: 'Son 12 ayda ödenen temettü (hisse başı × pay sayısı) / son 12 ay ana ortaklık net kârı' },
   stochK:    { label: 'Stoch RSI',        f: fmt.num, title: 'Stokastik RSI %K (14, 14, 3, 3)' },
   fisher:    { label: 'Fisher',           f: fmt.num2, color: 1, title: 'Ehlers Fisher dönüşümü (9)' },
   atrPct:    { label: 'ATR %',            f: fmt.pctPlain, pct: 1, title: 'ATR 14 / fiyat: günlük ortalama oynaklık' },
@@ -67,8 +72,8 @@ export const VIEWS = {
   fiyat:    { label: 'Fiyat',    cols: ['_idx', 'last', 'chg1d', 'chg1w', 'chg1m', 'chg3m', 'chg1y', 'ytd', 'turnover', 'volRatio', 'mcap'] },
   trend:    { label: 'Trend',    cols: ['_idx', 'last', 'chg1d', '_trend', '_st', '_ichi', '_cross', 'supDist', '_supStr', 'resDist', '_resStr', 'vsSma50', 'vsSma200', 'vsVwma20', 'stDist', 'distHi52', 'rs3m'] },
   momentum: { label: 'Momentum', cols: ['_idx', 'last', 'chg1d', 'rsi', 'stochK', 'macdPct', 'fisher', '_cross', 'volRatio', 'atrPct', 'volat', 'beta'] },
-  temettu:  { label: 'Temettü',  cols: ['_idx', 'last', 'divYield', 'divYieldAvg', 'divCur', 'divYieldPrev', 'divYieldAvgPrev', 'divPrev', 'divGrowth', 'divFreq', '_nextDiv', 'nextDivNet', 'lastDivDate', 'lastDivAmt', 'divYears5', 'divStreak', 'divAvg5', 'payout'] },
-  temel:    { label: 'Temel',    cols: ['_idx', 'last', 'mcap', 'pe', 'pb', 'evEbitda', 'netMargin', 'roe', 'de', 'revGrowth', 'epsGrowth', 'divYield', 'freeFloat', '_sector'] },
+  temettu:  { label: 'Temettü',  cols: ['_idx', 'last', 'dsScore', 'yieldPct', 'ttmYield', 'divYield', 'divYieldAvg', 'divCur', 'divYieldPrev', 'divYieldAvgPrev', 'divPrev', 'divGrowth', 'divFreq', '_nextDiv', 'nextDivNet', 'lastDivDate', 'lastDivAmt', 'divYears5', 'divStreak', 'divAvg5', 'payout'] },
+  temel:    { label: 'Temel',    cols: ['_idx', 'last', 'fScore', 'mcap', 'pe', 'pb', 'evEbitda', 'netMargin', 'roe', 'de', 'revGrowth', 'epsGrowth', 'divYield', 'freeFloat', '_sector'] },
 };
 export const ST = { up: ['Al', 'up'], down: ['Sat', 'down'] };
 export const ICHI = { above: ['Bulut üstü', 'up'], below: ['Bulut altı', 'down'], in: ['Bulut içi', ''] };
@@ -149,6 +154,9 @@ export const PRESETS = [
   { id: 'tedbir',   label: '⚠ Tedbirli',       test: s => !!s.tedbir?.length, hint: 'Borsa İstanbul tedbiri uygulanan hisseler' },
   { id: 'divSoon',  label: 'Yaklaşan temettü', test: s => !!s.divUpcoming?.length, hint: 'Açıklanmış, henüz ödenmemiş temettüsü olanlar (tarihli olanlar önce)', sort: ['_nextDiv', 1] },
   { id: 'divHigh',  label: 'Yüksek temettü',   test: s => Math.max(s.divYield || 0, s.divYieldPrev || 0) >= 0.06, hint: 'Bu yılın ya da geçen yılın temettü verimi ≥ %6', sort: ['divYield', -1] },
+  { id: 'divSafe',  label: 'Güvenli temettü',  test: s => s.dsScore >= 70, hint: 'Temettü güvenlik skoru ≥ 70', sort: ['dsScore', -1] },
+  { id: 'yieldTop', label: 'Verim bandının tepesi', test: s => s.yieldPct >= 0.8 && s.dsScore >= 50, hint: 'Son 12 ay verimi kendi 4 yıllık geçmişinin üst %20\'sinde ve güvenlik skoru ≥ 50', sort: ['yieldPct', -1] },
+  { id: 'fStrong',  label: 'Güçlü F-skoru',    test: s => s.fScore >= 7, hint: 'Piotroski F-skoru ≥ 7', sort: ['fScore', -1] },
   { id: 'divReg',   label: 'Düzenli temettü',  test: s => s.divYears5 >= 5, hint: 'Son 5 yılın her birinde temettü ödedi', sort: ['divAvg5', -1] },
   { id: 'value',    label: 'Ucuz',             test: s => s.pe > 0 && s.pe < 8 && s.pb > 0 && s.pb < 1.5, hint: 'F/K < 8 ve PD/DD < 1,5', sort: ['pe', 1] },
   { id: 'quality',  label: 'Kârlı büyüme',     test: s => s.roe > 0.25 && s.netMargin > 0.1 && s.revGrowth > 0, hint: 'ÖK kârlılığı > %25, net marj > %10, satış büyüyor', sort: ['roe', -1] },
@@ -158,7 +166,7 @@ if (!VIEWS[state.view]) state.view = 'trend';
 // Sonradan eklenen varsayılan sütunlar, sütunları elle düzenlenmiş görünümlere de kendi yerlerinde eklenir
 // (kullanıcının kaldırdığı sütunlar geri gelmez: her görünümün daha önce görülen varsayılanları saklanır).
 // colsSeen kaydı olmayan eski kurulumlar için o sürümden sonra eklenen sütunlar:
-const ADDED_LATER = ['divYieldAvg', 'divYieldAvgPrev'];
+const ADDED_LATER = ['divYieldAvg', 'divYieldAvgPrev', 'dsScore', 'yieldPct', 'ttmYield', 'fScore'];
 state.colsSeen ||= {};
 for (const [v, def] of Object.entries(VIEWS)) {
   const seen = state.colsSeen[v] || def.cols.filter(k => !ADDED_LATER.includes(k));

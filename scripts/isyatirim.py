@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import datetime as dt
 import html
+import http.client
 import json
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -23,31 +25,56 @@ UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chr
 
 # XI_29: sanayi/ticaret/hizmet şirketleri. UFRS: bankalar ve sigorta şirketleri.
 GROUPS = ("XI_29", "UFRS")
-# Saklanan kalemler (diğerleri atılır)
+# Saklanan kalemler (diğerleri atılır). Gelir tablosu ve nakit akışı kalemleri dönem başından itibaren kümülatiftir.
+SCHEMA = 2  # kalem listesi değişince artırılır; eski şemadaki önbellek kayıtları öncelikle yenilenir
 KEEP = {
     "XI_29": {
-        "3C": "rev",        # Satış gelirleri (dönem başından itibaren kümülatif)
+        "3C": "rev",        # Satış gelirleri
+        "3D": "gross",      # Brüt kâr
         "3DF": "op",        # Faaliyet kârı
         "3Z": "net",        # Ana ortaklık payı net kâr
         "4B": "dep",        # Amortisman giderleri
+        "4C": "cfo",        # İşletme faaliyetlerinden net nakit
+        "4CAI": "capex",    # Sabit sermaye yatırımları (negatif)
         "4CBB": "div",      # Temettü ödemeleri (negatif)
-        "2O": "eq",         # Ana ortaklığa ait özkaynaklar
-        "2AA": "debtS",     # Kısa vadeli finansal borçlar
-        "2BA": "debtL",     # Uzun vadeli finansal borçlar
+        "4CBC": "capInc",   # Nakit sermaye artırımı (bedelli; bedelsiz burada görünmez)
+        "1A": "curA",       # Dönen varlıklar
         "1AA": "cash",      # Nakit ve nakit benzerleri
         "1AB": "fininv",    # Kısa vadeli finansal yatırımlar
+        "1BL": "assets",    # Toplam varlıklar
+        "2A": "curL",       # Kısa vadeli yükümlülükler
+        "2AA": "debtS",     # Kısa vadeli finansal borçlar
+        "2BA": "debtL",     # Uzun vadeli finansal borçlar
+        "2O": "eq",         # Ana ortaklığa ait özkaynaklar
+        "2OA": "paidCap",   # Ödenmiş sermaye
     },
-    "UFRS": {
+    "UFRS": {  # bankalar
+        "3C": "nii",        # Net faiz geliri
+        "3CA": "fees",      # Net ücret ve komisyon gelirleri
+        "3CE": "opInc",     # Faaliyet gelirleri toplamı
+        "3CF": "prov",      # Kredi değer düşüş karşılıkları (gider)
         "3Z": "net",        # Net dönem kârı
+        "1Z": "assets",     # Aktif toplamı
+        "1AF": "loans",     # Krediler
+        "2A": "deposits",   # Mevduat
         "2O": "eq",         # Özkaynaklar
+        "2OA": "paidCap",   # Ödenmiş sermaye
     },
 }
 
 
-def _get(url: str, timeout: int = 30) -> bytes:
+def _get(url: str, timeout: int = 30, tries: int = 3) -> bytes:
+    """Yarıda kesilen yanıtlar (IncompleteRead) ve geçici hatalar için birkaç kez dener."""
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "tr-TR,tr;q=0.9"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+    for i in range(tries):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read()
+        except (http.client.IncompleteRead, ConnectionError, TimeoutError, urllib.error.URLError):
+            if i == tries - 1:
+                raise
+            time.sleep(2 * (i + 1))
+    raise RuntimeError("erişilemedi")
 
 
 def _tr_num(s: str):
@@ -82,7 +109,7 @@ def fetch_summary() -> dict[str, dict]:
     return out
 
 
-def recent_periods(today: dt.date | None = None, n: int = 8) -> list[tuple[int, int]]:
+def recent_periods(today: dt.date | None = None, n: int = 12) -> list[tuple[int, int]]:
     """Bugünden önce biten son n çeyrek, en yeniden eskiye: [(2026, 9), (2026, 6), ...]."""
     today = today or dt.date.today()
     y, m = today.year, (today.month - 1) // 3 * 3  # içinde bulunulan çeyrekten önceki çeyrek sonu
@@ -100,7 +127,7 @@ def recent_periods(today: dt.date | None = None, n: int = 8) -> list[tuple[int, 
 def _fetch_group(code: str, group: str, periods: list[tuple[int, int]]) -> dict[str, dict]:
     keep = KEEP[group]
     result: dict[str, dict] = {}
-    for chunk in (periods[:4], periods[4:8]):
+    for chunk in (periods[i:i + 4] for i in range(0, len(periods), 4)):
         if not chunk:
             continue
         q = {"companyCode": code, "exchange": "TRY", "financialGroup": group}
@@ -158,14 +185,21 @@ def load(codes: list[str], cache_path, max_age_days: float = 3, max_per_run: int
     periods = recent_periods()
     # codes öncelik sırasıyla gelir (BIST 30 önce); en eski güncellenenler önce, eşitse öncelik sırası
     prio = {c: i for i, c in enumerate(codes)}
-    stale = [c for c in codes if now - fin.get(c, {}).get("_ts", 0) > max_age_days * 86400]
-    stale.sort(key=lambda c: (fin.get(c, {}).get("_ts", 0), prio[c]))
+    def fresh(c):
+        e = fin.get(c, {})
+        return e.get("v") == SCHEMA and now - e.get("_ts", 0) <= max_age_days * 86400
+
+    stale = [c for c in codes if not fresh(c)]
+    # Önce eski şemadakiler (yeni kalemler eksik), sonra en eski güncellenenler, eşitse öncelik sırası
+    stale.sort(key=lambda c: (fin.get(c, {}).get("v") == SCHEMA, fin.get(c, {}).get("_ts", 0), prio[c]))
     done = failed = 0
     for c in stale[:max_per_run]:
         try:
             group, data = fetch_financials(c, fin.get(c, {}).get("group"), periods)
-            old = fin.get(c, {}).get("periods", {})
-            fin[c] = {"_ts": now, "group": group, "periods": {**old, **data}}
+            old = fin.get(c, {}).get("periods", {}) if fin.get(c, {}).get("v") == SCHEMA else {}
+            keep = {f"{y}/{m}" for y, m in periods}
+            fin[c] = {"_ts": now, "v": SCHEMA, "group": group,
+                      "periods": {k: v for k, v in {**old, **data}.items() if k in keep}}
             done += 1
         except Exception as e:
             failed += 1

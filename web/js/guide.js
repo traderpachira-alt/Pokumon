@@ -92,6 +92,10 @@ const TERMS = [
 
   // Temettü
   ['Temettü verimi', 'Yıl içinde ödenen hisse başı brüt temettü toplamı / güncel fiyat. Takvim yılı esas alınır (bu yıl ve geçen yıl ayrı).', 'Temettü'],
+  ['Temettü güvenlik skoru', '0–100 arası; temettünün sürdürülebilirliğini ölçer. Bileşenler: dağıtma oranı (20), serbest nakit akışının temettüyü karşılaması (20), net borç/FAVÖK (15), süreklilik (15), son 3 yıldaki kesintiler (10), özkaynak kârlılığı (10), F-skoru (10). Uygulanamayan bileşenler (bankalarda nakit akışı, borç, F-skoru) dışarıda bırakılıp puan 100\'e ölçeklenir. 70+ güçlü, 50–70 orta, 50 altı zayıf.', 'Temettü'],
+  ['Verim bandı', 'Son 12 ay temettü veriminin, hissenin kendi son 4 yıllık günlük verim geçmişindeki yüzdelik dilimi. %90: geçmişte günlerin %90\'ında verim bugünkünden düşüktü, yani fiyat temettüsüne göre tarihsel olarak ucuz. Temettü kesilecekse yanıltıcıdır; güvenlik skoruyla birlikte okunmalı.', 'Temettü'],
+  ['Serbest nakit akışı', 'Faaliyetlerden elde edilen nakit eksi yatırım harcamaları. Temettünün kâğıt üzerindeki kârdan değil, gerçek nakitten ödenip ödenemeyeceğini gösterir.', 'Temel'],
+  ['Piotroski F-skoru', '0–9 arası finansal sağlık puanı. Kârlılık (varlık kârlılığı > 0, faaliyet nakit akışı > 0, varlık kârlılığı arttı, nakit akışı > net kâr), borçluluk ve likidite (uzun vadeli borç oranı azaldı, cari oran arttı, bedelli sermaye artırımı yok) ve verimlilik (brüt marj arttı, varlık devir hızı arttı) kriterlerinin her biri 1 puan. 7+ güçlü, 3 ve altı zayıf.', 'Temel'],
   ['Bağıl verim', 'Temettü / önceki temettünün hak kullanım gününden bu temettüye kadarki günlük kapanışların ortalaması (öncesinde temettü yoksa son 1 yıl). Tek bir günün fiyatına bağlı kalmadan, o temettüyü "kazanan" dönemdeki tipik alış fiyatına göre verimi gösterir. Yıllık değer, yıl içindeki ödemelerin toplamıdır.', 'Temettü'],
   ['Hak kullanım tarihi (ex-date)', 'Temettünün fiyattan düşüldüğü gün. Temettü almak için hisseyi bu günden ÖNCEKİ işlem günü kapanışında elde tutmak gerekir.', 'Temettü'],
   ['Brüt / net temettü', 'Brüt: şirketin açıkladığı tutar. Net: stopaj düşüldükten sonra hesaba geçen tutar.', 'Temettü'],

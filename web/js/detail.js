@@ -1,3 +1,4 @@
+import { loadFin, renderFinPanel, renderQualityPanel } from './quality.js';
 import { atr, bollinger, fisher, ichimoku, macd, rsi, sma, stochRsi, supertrend, vwma } from '../ind.js';
 import { BY, DATA, DIV_Y, MEDIANS, loadHist } from './data.js';
 import { $, view } from './dom.js';
@@ -156,10 +157,18 @@ export async function renderDetail(t) {
 
   ${isIdx ? '' : srPanelHtml(s)}
   ${isIdx ? '' : '<section class="panel" id="divPanel"><h2>Temettü geçmişi</h2><p class="muted">Yükleniyor…</p></section>'}
+  ${isIdx ? '' : '<section class="panel" id="qualPanel"><h2>Temettü güvenliği ve finansal kalite</h2><p class="muted">Yükleniyor…</p></section>'}
+  ${isIdx ? '' : '<section class="panel" id="finPanel"><h2>Mali tablolar</h2><p class="muted">Yükleniyor…</p></section>'}
 
   ${peers.length > 1 ? `<section class="panel peers"><h2>${esc(s.sector)} sektöründeki hisseler</h2>
     <div class="tablewrap">${tableHtml(sorted(peers), colsFor(state.view), { sortable: false, highlight: t })}</div></section>` : ''}`;
 
+  if (!isIdx) {
+    (s.period || s.dsScore != null ? loadFin(t) : Promise.resolve(null)).then(j => {
+      if (location.hash !== `#/h/${t}`) return;
+      renderQualityPanel(s, j); renderFinPanel(s, j);
+    }).catch(() => { renderQualityPanel(s, null); renderFinPanel(s, null); });
+  }
   try {
     const h = await loadHist(t);
     if (location.hash !== `#/h/${t}`) return; // kullanıcı bu arada başka sayfaya geçti

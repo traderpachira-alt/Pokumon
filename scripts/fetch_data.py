@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 import isyatirim
+import scores
 import temettu
 
 HERE = Path(__file__).resolve().parent
@@ -802,6 +803,42 @@ def write_stable_history(out_dir: Path):
         print(f"  Stablecoin kur geçmişi alınamadı ({e}).", flush=True)
 
 
+def quality_scores(t: str, df: pd.DataFrame, m: dict, f: dict, fin: dict | None, fin_dir: Path) -> dict:
+    """F-skoru, temettü güvenlik skoru ve verim bandı; mali tablo özeti ve skor dökümü data/fin/KOD.json'a yazılır."""
+    out = {"fScore": None, "dsScore": None}
+    fq = scores.piotroski(fin)
+    out["fScore"] = fq["fScore"]
+    d = df["Dividends"] if "Dividends" in df.columns else pd.Series(dtype=float)
+    d = d[d > 0]
+    end = df.index[-1]
+    per_share12 = float(d[d.index > end - pd.DateOffset(days=365)].sum())
+    # Dağıtma oranı: şirketin kendi temettüsü (hisse başı brüt × pay sayısı) / son 12 ay ana ortaklık net kârı.
+    # Nakit akışındaki temettü kalemi holdinglerde azınlık paylarına ödenenleri de içerdiği için yalnızca yedektir.
+    payout, paid12 = f.get("payout"), None
+    F = scores.Fin(fin)
+    if f.get("mcap") and m.get("last"):
+        paid12 = per_share12 * f["mcap"] / m["last"]
+        net = F.ttm(*F.latest, "net") if F.latest else None
+        if net and net > 0:
+            payout = paid12 / net
+        elif net is not None:
+            payout = None  # zarar: oran anlamsız
+    out["payout"] = payout
+    ds = {"dsScore": None, "dsParts": None}
+    if (m.get("divCur") or 0) > 0 or (m.get("divPrev") or 0) > 0:  # son iki takvim yılında temettü ödeyenler
+        by_year = {int(k): float(v) for k, v in d.groupby(d.index.year).sum().items()}
+        ds = scores.dividend_safety(fin, {
+            "payout": payout, "roe": f.get("roe"), "fScore": fq["fScore"], "divYears5": m.get("divYears5"),
+            "divStreak": m.get("divStreak"), "divByYear": by_year, "curYear": end.year, "divPaid12": per_share12, "paid12": paid12})
+    out["dsScore"] = ds["dsScore"]
+    out.update(scores.yield_band(df))
+    st = scores.statements(fin)
+    if st or ds["dsParts"] or fq["fItems"]:
+        payload = {"st": st, "f": fq, "ds": ds["dsParts"], "payout": payout}
+        (fin_dir / f"{t}.json").write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    return out
+
+
 def download_prices(symbols: list[str]) -> dict[str, pd.DataFrame]:
     import yfinance as yf
 
@@ -912,7 +949,7 @@ def main():
     ap.add_argument("--out", default="site", help="çıktı klasörü (varsayılan: site)")
     ap.add_argument("--cache-dir", default=".cache", help="önbellek klasörü (mali tablolar, endeks listesi)")
     ap.add_argument("--fund-max-age-days", type=float, default=3, help="mali tablolar kaç günde bir yenilensin")
-    ap.add_argument("--fund-max-per-run", type=int, default=150, help="bir çalışmada en fazla kaç şirketin mali tablosu çekilsin")
+    ap.add_argument("--fund-max-per-run", type=int, default=60, help="bir çalışmada en fazla kaç şirketin mali tablosu çekilsin")
     ap.add_argument("--no-fundamentals", action="store_true")
     ap.add_argument("--div-max-per-run", type=int, default=120, help="bir çalışmada en fazla kaç hissenin temettü geçmişi (temettuhisseleri) çekilsin")
     ap.add_argument("--sample", action="store_true", help="internetsiz deneme için ÖRNEK veri üret")
@@ -932,6 +969,8 @@ def main():
     out = Path(args.out)
     hist_dir = out / "data" / "hist"
     hist_dir.mkdir(parents=True, exist_ok=True)
+    fin_dir = out / "data" / "fin"
+    fin_dir.mkdir(parents=True, exist_ok=True)
 
     t0 = time.time()
     is_summ, is_fin, sample_funds = {}, {}, {}
@@ -994,6 +1033,7 @@ def main():
             s = is_summ.get(t) or {}
             f = {"name": s.get("name") or bist_names.get(t), "sector": s.get("sector"),
                  "freeFloat": s.get("freeFloat"), **isyatirim.ratios(m["last"], s, is_fin.get(t))}
+        m.update(quality_scores(t, df, m, f, None if args.sample else is_fin.get(t), fin_dir))
         stocks.append({"t": t, "idx": tier.get(t), "mkt": markets.get(t), "tedbir": measures.get(t), **f, **m})
     print(f"Temettü: {div_fix['site']} hissede temettuhisseleri ile karşılaştırıldı; {div_fix['fixed']} kayıt düzeltildi, "
           f"{div_fix['added']} eksik kayıt eklendi.", flush=True)
