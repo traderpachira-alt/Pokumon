@@ -208,6 +208,13 @@ test('temettü onayı TL bakiyesine yazılır; geri alınabilir, bakiye kullanı
   assert.equal(pendingDivs().length, 1);
 });
 
+test('stopajsız (GYO) hissede net temettü brüte eşit', () => {
+  const d = structuredClone(SUMMARY); d.stocks[1].divRecent = [['2025-06-10', 2]]; d.stocks[1].divTax = 0; setData(d, FXH);
+  pos('temettu', 'BBBB', [tx('buy', '2025-01-01', 10, 10)]);
+  const [x] = pendingDivs();
+  assert.equal(x.tax, 0); near(x.net, 20); near(x.gross, 20);
+});
+
 test('gelecekteki ve varlık pozisyonlarındaki temettüler bekleyen sayılmaz', () => {
   const d = structuredClone(SUMMARY); d.stocks[0].divRecent = [['2999-01-01', 1]]; setData(d, FXH);
   pos('temettu', 'AAAA', [tx('buy', '2025-01-01', 10, 10)]);

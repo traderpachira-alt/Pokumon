@@ -48,7 +48,8 @@ Tarayıcıda çalışır, telefonda ana ekrana eklenince uygulama gibi açılır
 
 | Veri | Kaynak | Sıklık |
 |---|---|---|
-| Fiyat, hacim, temettü (5 yıl, günlük; bölünmelere göre düzeltilmiş) | Yahoo Finance (~15 dk gecikmeli) | seans boyunca saatte bir |
+| Fiyat, hacim, bölünmeler (5 yıl, günlük; bölünmelere göre düzeltilmiş) | Yahoo Finance (~15 dk gecikmeli) | seans boyunca saatte bir |
+| Temettü geçmişi | temettuhisseleri.com hisse sayfaları (ana) + Yahoo, karşılaştırmalı | hisse başına haftada bir; yeni temettü açıklanınca hemen |
 | Pazar (Yıldız/Ana/Alt/YİP) | KAP Pazarlar sayfası | günde bir |
 | Dolar, euro, gram altın, gram gümüş, kripto (TL) | Yahoo Finance (USDTRY, EURTRY, ons altın/gümüş × kur, BTC-USD vb. × kur) | seans boyunca saatte bir |
 | Tedbirler | GCM Yatırım tedbir listesi + `scripts/tedbirler.csv` | her çalışmada |
@@ -62,6 +63,12 @@ F/K = piyasa değeri / TTM net kâr (ana ortaklık), PD/DD = piyasa değeri / an
 FD/FAVÖK = (piyasa değeri + net finansal borç) / TTM (faaliyet kârı + amortisman),
 büyüme oranları yılbaşından bu yana geçen yılın aynı dönemine göre. Banka ve sigorta şirketlerinde
 satışa dayalı oranlar (marj, FD/FAVÖK, borç/ÖK) hesaplanmaz.
+
+Temettü: temettuhisseleri.com tutarları **net** ve bedelsizlere göre **düzeltilmemiş**tir; Yahoo'nun bölünme
+çarpanları ve o tarihteki stopajla (2022–2024 arası %10, öncesi ve sonrası %15, GYO/YO %0) brüt, düzeltilmiş
+tutara çevrilir (`scripts/temettu.py`). İki kaynak uyuşuyorsa Yahoo tutarı kullanılır; fiyatın %1'inden büyük bir
+fark varsa hak kullanım günündeki fiyat boşluğu (bilgi veriyorsa) ya da site esas alınır; yalnızca sitede olan
+temettüler eklenir. Düzeltmeler iş akışı kaydında listelenir.
 
 ## Kurulum (bir kez)
 
@@ -95,5 +102,5 @@ Kod yapısı: `scripts/` veri çekme (Python), `web/` arayüz — `web/js/` alt�
 - Enflasyon muhasebesi (TMS 29) nedeniyle TTM toplamları farklı satın alma gücündeki dönemleri birleştirir;
   oranlar yaklaşık değerlerdir. Leasing/faktoring gibi bazı şirketler için mali tablo bulunmaz.
 - Ichimoku bulutu bugünkü tarihe hizalı çizilir (26 günlük ileri kısım gösterilmez).
-- Yahoo'nun eski temettü kayıtlarında ara sıra hata olabilir (ör. TUPRS 2023/09 tutarı iki kat görünüyor).
+- Temettü kaynakları küçük şirketlerde birbirini tutmayabilir; fiyatın %1'inden küçük farklar düzeltilmez.
 - Kişisel kullanım içindir, yatırım tavsiyesi değildir.

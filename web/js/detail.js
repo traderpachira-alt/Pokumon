@@ -199,7 +199,7 @@ export function renderDivPanel(s, h) {
       ${years.map(y => `<tr><td class="tk">${y}</td><td>${fmt.price(byYear[y])}</td><td>${fmt.pctPlain(byYear[y] / s.last)}</td></tr>`).join('')}
     </tbody></table></div>
   </div>
-  <p class="muted" style="font-size:12px;margin:8px 0 0">Geçmiş ödemeler brüt, bedelsiz sermaye artırımlarına göre düzeltilmiş (Yahoo Finance); tarih, hak kullanım tarihidir. Açıklanan temettüler stopaj sonrası net tutardır (temettuhisseleri.com).</p>`;
+  <p class="muted" style="font-size:12px;margin:8px 0 0">Geçmiş ödemeler brüt, bedelsiz sermaye artırımlarına göre düzeltilmiş (temettuhisseleri.com ve Yahoo Finance karşılaştırılarak); tarih, hak kullanım tarihidir. Açıklanan temettüler stopaj sonrası net tutardır (temettuhisseleri.com).</p>`;
 }
 export function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 export function drawCharts(h) {

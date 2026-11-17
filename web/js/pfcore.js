@@ -172,7 +172,7 @@ export function removePosition(pid) {
   return null;
 }
 /* --- Temettü tespiti ---
-   Yahoo'daki temettü kaydı hak kullanım günü gerçekleştikten sonra oluşur: şirketin dağıtımı yaptığı kesindir.
+   Geçmiş temettü kaydı hak kullanım günü gerçekleştikten sonra oluşur: şirketin dağıtımı yaptığı kesindir.
    Hak sahipliği: hak kullanım gününden ÖNCEKİ işlem günü sonunda elde olan adet (işlem tarihi < hak kullanım tarihi).
    Hesaba geçen net tutar (stopaj) ve ödemenin alındığı kullanıcıya onaylatılır. p.divs[tarih] = {status, net, flow, txId} */
 export const DIV_TAX = 0.15;
@@ -190,7 +190,8 @@ export function pendingDivs() {
     for (const [date, per] of s?.divRecent || []) {
       if (date > today || p.divs?.[date]) continue;
       const qty = heldBefore(p, date);
-      if (qty > 0) out.push({ p, date, per, qty, gross: qty * per, net: qty * per * (1 - DIV_TAX) });
+      const tax = s.divTax ?? DIV_TAX; // GYO/YO'larda stopaj yok
+      if (qty > 0) out.push({ p, date, per, qty, tax, gross: qty * per, net: qty * per * (1 - tax) });
     }
   }
   return out.sort((a, b) => a.date < b.date ? -1 : 1);

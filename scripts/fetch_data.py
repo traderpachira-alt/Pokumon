@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 import isyatirim
+import temettu
 
 HERE = Path(__file__).resolve().parent
 INDEX = "XU100"
@@ -792,7 +793,7 @@ def download_prices(symbols: list[str]) -> dict[str, pd.DataFrame]:
             if s + ".IS" not in have:
                 continue
             sub = data[s + ".IS"]
-            cols = [c for c in ["Open", "High", "Low", "Close", "Volume", "Dividends"] if c in sub.columns]
+            cols = [c for c in ["Open", "High", "Low", "Close", "Volume", "Dividends", "Stock Splits"] if c in sub.columns]
             df = sub[cols].dropna(subset=["Close"])
             if "Dividends" not in df.columns:
                 df = df.assign(Dividends=0.0)
@@ -885,6 +886,7 @@ def main():
     ap.add_argument("--fund-max-age-days", type=float, default=3, help="mali tablolar kaç günde bir yenilensin")
     ap.add_argument("--fund-max-per-run", type=int, default=150, help="bir çalışmada en fazla kaç şirketin mali tablosu çekilsin")
     ap.add_argument("--no-fundamentals", action="store_true")
+    ap.add_argument("--div-max-per-run", type=int, default=120, help="bir çalışmada en fazla kaç hissenin temettü geçmişi (temettuhisseleri) çekilsin")
     ap.add_argument("--sample", action="store_true", help="internetsiz deneme için ÖRNEK veri üret")
     ap.add_argument("--limit", type=int, default=0, help="yalnızca ilk N hisse (deneme için)")
     args = ap.parse_args()
@@ -924,13 +926,34 @@ def main():
         is_summ, is_fin = isyatirim.load(by_priority, cache_dir / "isyatirim.json", args.fund_max_age_days,
                                          args.fund_max_per_run, log=lambda s: print(s, flush=True))
 
+    # Temettü geçmişi: temettuhisseleri.com hisse sayfaları (ana kaynak) ile Yahoo karşılaştırılıp düzeltilir
+    site_div = {}
+    if not args.sample:
+        try:
+            recent = {k: [x["date"] for x in v if x["date"]] for k, v in upcoming.items()}
+            site_div = temettu.load(ok, cache_dir / "temettuhisseleri.json", recent, max_per_run=args.div_max_per_run,
+                                    log=lambda s: print(s, flush=True))
+        except Exception as e:  # noqa: BLE001 — kaynak çökerse Yahoo ile devam
+            print(f"  temettuhisseleri alınamadı ({e}); temettüler yalnızca Yahoo'dan.", flush=True)
+    div_notes, div_fix = [], {"fixed": 0, "added": 0, "site": 0}
+
     idx = prices.get(INDEX)
     stocks = []
     for t in ok:
         df = prices[t]
+        name = (is_summ.get(t) or {}).get("name") or bist_names.get(t) or ""
+        gyo = t.endswith(("GY", "GYO")) or "GAYRİMENKUL YATIRIM" in name.upper() or "YATIRIM ORTAKLI" in name.upper()
+        if site_div.get(t):
+            new, st = temettu.merge(df, site_div[t], exempt_hint=gyo)
+            df = df.assign(Dividends=new)
+            div_fix["site"] += 1
+            div_fix["fixed"] += st["fixed"]
+            div_fix["added"] += st["added"]
+            div_notes += [f"{t} {n}" for n in st["notes"]]
         write_hist(hist_dir / f"{t}.json", df)
         m = metrics(df, idx)
         m.update(div_metrics(df))
+        m["divTax"] = 0.0 if gyo else 0.15  # portföyde net temettü tahmini için stopaj (GYO/YO muaf)
         m.update(sr_metrics(df))
         up = upcoming.get(t)
         if up:
@@ -944,6 +967,10 @@ def main():
             f = {"name": s.get("name") or bist_names.get(t), "sector": s.get("sector"),
                  "freeFloat": s.get("freeFloat"), **isyatirim.ratios(m["last"], s, is_fin.get(t))}
         stocks.append({"t": t, "idx": tier.get(t), "mkt": markets.get(t), "tedbir": measures.get(t), **f, **m})
+    print(f"Temettü: {div_fix['site']} hissede temettuhisseleri ile karşılaştırıldı; {div_fix['fixed']} kayıt düzeltildi, "
+          f"{div_fix['added']} eksik kayıt eklendi.", flush=True)
+    for n in div_notes[:40]:
+        print("  " + n, flush=True)
     index_summary = None
     if idx is not None:
         write_hist(hist_dir / f"{INDEX}.json", idx)

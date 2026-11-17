@@ -119,7 +119,7 @@ export function divPendingHtml(pend) {
   return `<section class="panel divpend" id="divPend">
     <h2>Temettü ödemesi tespit edildi <span class="muted">· ${pend.length} ödeme onayınızı bekliyor</span></h2>
     <p class="muted" style="font-size:12px;margin:0 0 8px">Şirket bu tarihte hak kullanımını gerçekleştirdi. Adet, hak kullanımından önceki gün sonunda elinizde olan miktardır.
-      Net tutar %15 stopajla tahmin edildi (GYO ve bazı şirketlerde stopaj yoktur); hesabınıza geçen tutarı kontrol edip onaylayın.</p>
+      Net tutar %15 stopajla tahmin edildi (GYO ve yatırım ortaklıklarında stopajsız); hesabınıza geçen tutarı kontrol edip onaylayın.</p>
     <div class="tablewrap flat"><table class="grid"><thead><tr><th class="tk">Hisse</th><th>Hak kullanım</th><th>Adet</th><th>Hisse başı brüt ₺</th><th>Brüt ₺</th><th>Hesaba geçen net ₺</th><th>Nereye</th><th></th></tr></thead><tbody>
       ${pend.map(x => { const k = `${x.p.id}|${x.date}`; return `<tr data-divkey="${k}"><td class="tk"><span class="code">${x.p.sym}</span><span class="nm">${PF_CATS[x.p.cat].label}</span></td>
         <td>${fmt.date(x.date)}</td><td>${qtyFmt(x.qty)}</td><td>${fmt.price(x.per)}</td><td>${fmt.price(x.gross)}</td>
