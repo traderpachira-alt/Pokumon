@@ -143,6 +143,36 @@ class YieldBandTest(unittest.TestCase):
         self.assertGreater(r["yieldPct"], 0.85)
         self.assertAlmostEqual(r["yieldMed"], 0.05, places=3)
 
+    def test_market_relative(self):
+        idx = pd.bdate_range("2021-01-01", "2025-12-31")
+        # Piyasanın tamamı ucuzladı: hisse verimi 2 katına çıktı ama piyasa verimi de 2 katı → göreli dilim yükselmez
+        close = pd.Series(100.0, index=idx)
+        close[idx >= "2025-06-01"] = 50.0
+        div = pd.Series(0.0, index=idx)
+        for y in range(2021, 2026):
+            div[idx[idx >= f"{y}-05-01"][0]] = 5.0
+        df = pd.DataFrame({"Close": close, "Dividends": div})
+        mkt = scores.ttm_yield_series(df)
+        r = scores.yield_band(df, mkt)
+        self.assertGreater(r["yieldPctAbs"], 0.85)   # mutlak: tarihin zirvesi
+        self.assertLess(r["yieldPct"], 0.2)          # piyasaya göre: olağan
+        self.assertAlmostEqual(r["yieldRel"], 1.0)
+        # Piyasa sabitken hisse ucuzladı → göreli dilim de yüksek
+        r2 = scores.yield_band(df, mkt.where(mkt.index < "2025-06-01", mkt.shift(1).where(mkt.index < "2025-06-01")).ffill())
+        self.assertGreater(r2["yieldPct"], 0.85)
+
+    def test_market_yield_median(self):
+        idx = pd.bdate_range("2021-01-01", "2025-12-31")
+        dfs = {}
+        for i in range(25):
+            div = pd.Series(0.0, index=idx)
+            for y in range(2021, 2026):
+                div[idx[idx >= f"{y}-05-01"][0]] = 1.0 + i * 0.1
+            dfs[f"S{i}"] = pd.DataFrame({"Close": 100.0, "Dividends": div}, index=idx)
+        m = scores.market_yield(dfs)
+        self.assertAlmostEqual(m.iloc[-1], 0.022)     # 25 hissenin ortancası: (1 + 12×0,1) / 100
+        self.assertIsNone(scores.market_yield({k: dfs[k] for k in list(dfs)[:5]}))  # yeterli hisse yok
+
     def test_needs_history(self):
         idx = pd.bdate_range("2025-01-01", "2025-12-31")
         df = pd.DataFrame({"Close": np.full(len(idx), 10.0), "Dividends": 0.0}, index=idx)

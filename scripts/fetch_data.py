@@ -803,7 +803,7 @@ def write_stable_history(out_dir: Path):
         print(f"  Stablecoin kur geçmişi alınamadı ({e}).", flush=True)
 
 
-def quality_scores(t: str, df: pd.DataFrame, m: dict, f: dict, fin: dict | None, fin_dir: Path) -> dict:
+def quality_scores(t: str, df: pd.DataFrame, m: dict, f: dict, fin: dict | None, fin_dir: Path, mkt_yield=None) -> dict:
     """F-skoru, temettü güvenlik skoru ve verim bandı; mali tablo özeti ve skor dökümü data/fin/KOD.json'a yazılır."""
     out = {"fScore": None, "dsScore": None}
     fq = scores.piotroski(fin)
@@ -831,7 +831,7 @@ def quality_scores(t: str, df: pd.DataFrame, m: dict, f: dict, fin: dict | None,
             "payout": payout, "roe": f.get("roe"), "fScore": fq["fScore"], "divYears5": m.get("divYears5"),
             "divStreak": m.get("divStreak"), "divByYear": by_year, "curYear": end.year, "divPaid12": per_share12, "paid12": paid12})
     out["dsScore"] = ds["dsScore"]
-    out.update(scores.yield_band(df))
+    out.update(scores.yield_band(df, mkt_yield))
     st = scores.statements(fin)
     if st or ds["dsParts"] or fq["fItems"]:
         payload = {"st": st, "f": fq, "ds": ds["dsParts"], "payout": payout}
@@ -1005,6 +1005,8 @@ def main():
     div_notes, div_fix = [], {"fixed": 0, "added": 0, "site": 0}
 
     idx = prices.get(INDEX)
+    # Piyasa temettü verimi (günlük, ödeyenlerin medyanı): verim bandını piyasa genelindeki seviye değişiminden arındırmak için
+    mkt_yield = scores.market_yield({t: prices[t] for t in ok})
     stocks = []
     for t in ok:
         df = prices[t]
@@ -1033,7 +1035,7 @@ def main():
             s = is_summ.get(t) or {}
             f = {"name": s.get("name") or bist_names.get(t), "sector": s.get("sector"),
                  "freeFloat": s.get("freeFloat"), **isyatirim.ratios(m["last"], s, is_fin.get(t))}
-        m.update(quality_scores(t, df, m, f, None if args.sample else is_fin.get(t), fin_dir))
+        m.update(quality_scores(t, df, m, f, None if args.sample else is_fin.get(t), fin_dir, mkt_yield))
         stocks.append({"t": t, "idx": tier.get(t), "mkt": markets.get(t), "tedbir": measures.get(t), **f, **m})
     print(f"Temettü: {div_fix['site']} hissede temettuhisseleri ile karşılaştırıldı; {div_fix['fixed']} kayıt düzeltildi, "
           f"{div_fix['added']} eksik kayıt eklendi.", flush=True)
@@ -1051,6 +1053,9 @@ def main():
         "divYear": int(max(s["date"] for s in stocks)[:4]),
         "tedbirAt": measures_at,
         "divUpAt": upcoming_at,
+        # Piyasa son 12 ay temettü verimi (medyan) ve son 4 yıldaki yüzdelik dilimi
+        "mktYield": round(float(mkt_yield.iloc[-1]), 5) if mkt_yield is not None else None,
+        "mktYieldPct": round(float((mkt_yield < mkt_yield.iloc[-1]).mean()), 4) if mkt_yield is not None else None,
         "assets": {"TRY": {"last": 1.0, "chg1d": 0.0}} if args.sample else fetch_assets(),
         "sample": bool(args.sample),
         "source": "ÖRNEK VERİ" if args.sample else "Fiyat: Yahoo Finance (gecikmeli) · Mali tablolar: İş Yatırım",

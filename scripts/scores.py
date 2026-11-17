@@ -4,7 +4,7 @@
   (İş Yatırım XI_29 grubu); bankalarda kalem yapısı farklı olduğu için hesaplanmaz.
 - Temettü güvenlik skoru (0–100): 7 bileşen; verisi olmayan ya da şirket türüne uymayan bileşenler dışarıda bırakılır ve
   puan kalan bileşenlerin toplamı üzerinden 100'e ölçeklenir (uygulanabilir bileşenlerin en az %75'inin verisi gerekir).
-- Verim bandı: güncel son 12 ay temettü verimi, hissenin kendi 5 yıllık günlük verim geçmişinin hangi yüzdelik dilimde.
+- Verim bandı: hissenin piyasaya göre verim oranının, kendi son 4 yıllık geçmişindeki yüzdelik dilimi (mutlak dilim de verilir).
 - Mali tablo özeti: hisse sayfasındaki 'Mali tablolar' bölümü için çeyreklik/yıllık kalemler.
 
 Not: TMS 29 (enflasyon muhasebesi) nedeniyle her rapor kendi dönem sonu satın alma gücüyle yayımlanır; TTM toplamları ve
@@ -242,27 +242,61 @@ def dividend_safety(fin: dict | None, d: dict) -> dict:
 # ----------------------------------------------------------------------------
 # Verim bandı
 # ----------------------------------------------------------------------------
-def yield_band(df: pd.DataFrame) -> dict:
-    """Son 12 ay temettüsü / fiyat serisinin (günlük) son 4 yıllık dağılımında güncel değerin yeri.
+def ttm_yield_series(df: pd.DataFrame) -> pd.Series | None:
+    """Günlük son 12 ay temettü verimi (ilk yıl, pencere dolmadığı için atılır)."""
+    if "Dividends" not in df.columns or len(df) < 300:
+        return None
+    ttm = df["Dividends"].fillna(0).rolling("365D").sum()
+    y = (ttm / df["Close"]).where(df["Close"] > 0)
+    return y[y.index >= y.index[0] + pd.DateOffset(days=365)]
+
+
+def market_yield(prices: dict[str, pd.DataFrame], min_n: int = 20) -> pd.Series | None:
+    """Piyasa verimi: her gün, temettü ödeyen hisselerin (son 12 ay verimi > 0) medyan son 12 ay verimi."""
+    cols = {}
+    for t, df in prices.items():
+        y = ttm_yield_series(df)
+        if y is not None:
+            cols[t] = y
+    if not cols:
+        return None
+    m = pd.DataFrame(cols)
+    m = m.where(m > 0)
+    med = m.median(axis=1).where(m.count(axis=1) >= min_n).dropna()
+    return med if len(med) >= 250 else None
+
+
+def yield_band(df: pd.DataFrame, mkt: pd.Series | None = None) -> dict:
+    """Verim bandı. Piyasa genelinde verim seviyesi değiştiğinde (ör. 2022'de %1, 2026'da %3) hissenin kendi geçmişindeki
+    dilimi bütün hisselerde aynı yöne kayar ve seçiciliğini kaybeder. Bu yüzden ana ölçü:
+      yieldPct    = (hisse verimi / piyasa verimi) oranının hissenin kendi son 4 yıllık geçmişindeki yüzdelik dilimi
+                    → hisse, piyasaya göre her zamankinden daha mı yüksek verimli (ucuz)?
+      yieldPctAbs = hisse veriminin kendi geçmişindeki dilimi (mutlak; piyasa etkisi dahil)
+      yieldRel    = bugünkü hisse verimi / piyasa verimi
     En az 2 farklı yılda temettü ve pozitif güncel verim gerekir."""
-    out = {"ttmYield": None, "yieldPct": None, "yieldMin": None, "yieldMed": None, "yieldMax": None}
+    out = {"ttmYield": None, "yieldPct": None, "yieldPctAbs": None, "yieldRel": None,
+           "yieldMin": None, "yieldMed": None, "yieldMax": None}
     if "Dividends" not in df.columns:
         return out
-    d = df["Dividends"].fillna(0)
-    paid = d[d > 0]
+    paid = df["Dividends"][df["Dividends"] > 0]
     if paid.empty or len(set(paid.index.year)) < 2:
         return out
-    ttm = d.rolling("365D").sum()
-    y = (ttm / df["Close"]).where(df["Close"] > 0)
-    y = y[y.index >= y.index[0] + pd.DateOffset(days=365)]  # ilk yıl eksik pencere
-    if len(y) < 250:
+    y = ttm_yield_series(df)
+    if y is None or len(y) < 250:
         return out
     cur = float(y.iloc[-1])
     out["ttmYield"] = cur
     if cur <= 0:
         return out
-    out["yieldPct"] = float((y < cur).mean())
+    out["yieldPctAbs"] = float((y < cur).mean())
     out["yieldMin"], out["yieldMed"], out["yieldMax"] = float(y.min()), float(y.median()), float(y.max())
+    out["yieldPct"] = out["yieldPctAbs"]  # piyasa serisi yoksa (ör. deneme verisi) mutlak dilim
+    if mkt is not None:
+        rel = (y / mkt.reindex(y.index)).dropna()
+        if len(rel) >= 250 and pd.notna(mkt.iloc[-1]) and mkt.iloc[-1] > 0:
+            r_now = cur / float(mkt.iloc[-1])
+            out["yieldRel"] = r_now
+            out["yieldPct"] = float((rel < r_now).mean())
     return out
 
 

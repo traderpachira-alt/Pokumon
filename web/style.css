@@ -462,3 +462,4 @@ table.fintable td.sp { width: 64px; padding-right: 4px; }
 @media (max-width: 860px) { .qualgrid { grid-template-columns: 1fr; } }
 
 #finPanel .tablewrap { max-height: none; }
+.bandkv { margin-top: 10px; font-size: 13px; }

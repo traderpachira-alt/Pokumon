@@ -67,8 +67,8 @@ satışa dayalı oranlar (marj, FD/FAVÖK, borç/ÖK) hesaplanmaz.
 Skorlar (`scripts/scores.py`, testleri `tests/test_scores.py`): **Piotroski F-skoru** (0–9, son 12 ay ile bir yıl önceki
 son 12 ay; bankalarda hesaplanmaz), **temettü güvenlik skoru** (0–100: dağıtma oranı 20, serbest nakit akışı karşılama 20,
 net borç/FAVÖK 15, süreklilik 15, kesinti geçmişi 10, özkaynak kârlılığı 10, F-skoru 10; uygulanamayan bileşenler
-dışarıda bırakılıp 100'e ölçeklenir) ve **verim bandı** (son 12 ay veriminin hissenin 4 yıllık günlük verim geçmişindeki
-yüzdelik dilimi). Hisse sayfasındaki mali tablolar (8 çeyrek / 3 yıl) `data/fin/KOD.json` dosyalarından gelir.
+dışarıda bırakılıp 100'e ölçeklenir) ve **verim bandı** (hissenin piyasaya göre veriminin — son 12 ay verimi / temettü ödeyenlerin medyan verimi —
+kendi 4 yıllık geçmişindeki yüzdelik dilimi; piyasa genelindeki verim değişimi ayıklanır, mutlak dilim de verilir). Hisse sayfasındaki mali tablolar (8 çeyrek / 3 yıl) `data/fin/KOD.json` dosyalarından gelir.
 
 Temettü: temettuhisseleri.com tutarları **net** ve bedelsizlere göre **düzeltilmemiş**tir; Yahoo'nun bölünme
 çarpanları ve o tarihteki stopajla (2022–2024 arası %10, öncesi ve sonrası %15, GYO/YO %0) brüt, düzeltilmiş

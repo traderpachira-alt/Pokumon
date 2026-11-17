@@ -1,3 +1,4 @@
+import { DATA } from './data.js';
 import { $ } from './dom.js';
 import { F1, F2, esc, fmt, ok } from './util.js';
 
@@ -46,17 +47,24 @@ const fv = (v, kind) => !ok(v) ? '—' : kind === 'pct' ? fmt.pctPlain(v) : kind
 const scoreCls = (x, hi, mid) => x >= hi ? 'hi' : x >= mid ? 'mid' : 'lo';
 
 function bandHtml(s) {
-  if (!ok(s.yieldPct) || !ok(s.yieldMax) || s.yieldMax <= 0) {
+  if (!ok(s.yieldPctAbs) || !ok(s.yieldMax) || s.yieldMax <= 0) {
     return `<p class="muted" style="font-size:13px">Verim bandı hesaplanamadı${ok(s.ttmYield) && s.ttmYield === 0 ? ' (son 12 ayda temettü yok)' : ' (en az 2 yıl temettü ve 1 yıldan uzun fiyat geçmişi gerekir)'}.</p>`;
   }
   const pos = v => Math.max(0, Math.min(100, (v - s.yieldMin) / (s.yieldMax - s.yieldMin || 1) * 100));
+  const mk = DATA.mktYield, mkp = DATA.mktYieldPct;
+  const rel = ok(s.yieldRel);
   return `<div class="band">
-      <div class="band-head"><span>Son 12 ay verim <b class="num">${fmt.pctPlain(s.ttmYield)}</b></span>
-        <span class="score ${scoreCls(s.yieldPct, 0.8, 0.4)}" title="Geçmiş 4 yılda günlerin bu kadarında verim bugünkünden düşüktü">%${Math.round(s.yieldPct * 100)}. dilim</span></div>
+      <div class="band-head"><span>Son 12 ay verim <b class="num">${fmt.pctPlain(s.ttmYield)}</b>${rel ? ` <span class="muted">· piyasanın ${F2.format(s.yieldRel)} katı</span>` : ''}</span>
+        <span class="score ${scoreCls(s.yieldPct, 0.8, 0.4)}" title="Piyasaya göre verimin kendi geçmişindeki dilimi">%${Math.round(s.yieldPct * 100)}. dilim</span></div>
       <div class="bar"><span class="med" style="left:${pos(s.yieldMed)}%" title="Medyan ${fmt.pctPlain(s.yieldMed)}"></span><span class="dot" style="left:${pos(s.ttmYield)}%"></span></div>
       <div class="ends"><span>en düşük ${fmt.pctPlain(s.yieldMin)}</span><span>medyan ${fmt.pctPlain(s.yieldMed)}</span><span>en yüksek ${fmt.pctPlain(s.yieldMax)}</span></div>
-      <p class="muted" style="font-size:12px;margin:6px 0 0">Bugünkü son 12 ay veriminin, hissenin kendi son 4 yıllık günlük verim geçmişindeki yeri. Üst dilimler fiyatın temettüsüne göre tarihsel olarak ucuz olduğunu gösterir;
-        temettü kesilecekse yanıltıcıdır, güvenlik skoruyla birlikte okuyun.</p>
+      <dl class="kv bandkv">
+        <dt>Piyasaya göre (ana ölçü)</dt><dd>${rel ? `%${Math.round(s.yieldPct * 100)}. dilim` : '—'}</dd><dd class="note">hisse verimi / piyasa verimi, kendi 4 yılına göre</dd>
+        <dt>Mutlak</dt><dd>%${Math.round(s.yieldPctAbs * 100)}. dilim</dd><dd class="note">çubuktaki konum</dd>
+        ${ok(mk) ? `<dt>Piyasa verimi</dt><dd>${fmt.pctPlain(mk)}</dd><dd class="note">${ok(mkp) ? `4 yılın %${Math.round(mkp * 100)}. diliminde` : ''}</dd>` : ''}
+      </dl>
+      <p class="muted" style="font-size:12px;margin:6px 0 0">Piyasa genelinde verim yükseldiğinde (ör. 2022'de ~%1, bugün ~%3) her hisse kendi geçmişine göre "ucuz" görünür. Bu yüzden ana ölçü,
+        hissenin piyasaya göre veriminin kendi geçmişindeki yeridir: üst dilimler hissenin piyasaya göre her zamankinden ucuz olduğunu gösterir. Temettü kesilecekse yanıltıcıdır; güvenlik skoruyla birlikte okuyun.</p>
     </div>`;
 }
 
