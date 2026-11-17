@@ -48,9 +48,9 @@ export const FIELDS = {
   divYears5: { label: 'Son 5 yıl',        f: x => !ok(x) ? '—' : `${x}/5`, title: 'Bu yıl dahil son 5 takvim yılının kaçında temettü ödendi' },
   divStreak: { label: 'Kesintisiz',       f: x => !ok(x) || x === 0 ? '—' : x + ' yıl', title: 'Kaç yıldır her yıl temettü ödüyor (yaklaşık 5 yıllık veriyle; en fazla 6 takvim yılı görünür)' },
   divGrowth: { label: 'Temettü değişimi', f: fmt.pct, pct: 1, color: 1 },
-  divYieldAvg:     { label: 'Bu yıl ort. fiyat verimi', f: fmt.pctPlain, pct: 1 },
-  divYieldAvgPrev: { label: 'Geçen yıl ort. fiyat verimi', f: fmt.pctPlain, pct: 1 },
-  lastDivYieldAvg: { label: 'Son ödeme ort. fiyat verimi', f: fmt.pctPlain, pct: 1, title: 'Son temettü / önceki temettüden bu temettüye kadarki ortalama kapanış fiyatı' },
+  divYieldAvg:     { label: 'Bu yıl bağıl verim', f: fmt.pctPlain, pct: 1 },
+  divYieldAvgPrev: { label: 'Geçen yıl bağıl verim', f: fmt.pctPlain, pct: 1 },
+  lastDivYieldAvg: { label: 'Son ödeme bağıl verim', f: fmt.pctPlain, pct: 1, title: 'Bağıl verim: son temettü / önceki temettüden bu temettüye kadarki ortalama kapanış fiyatı' },
   divAvg5:   { label: '5Y ort. verim',    f: fmt.pctPlain, pct: 1, title: 'Son 5 tamamlanmış yılın ortalama yıllık temettüsü / güncel fiyat' },
   nextDivNet:   { label: 'Sıradaki tutar (net) ₺', f: fmt.price, title: 'Açıklanan sıradaki temettünün stopaj sonrası pay başı tutarı (temettuhisseleri.com)' },
   nextDivYield: { label: 'Sıradaki verim (net)',   f: fmt.pctPlain, pct: 1, title: 'Sıradaki net temettü / güncel fiyat' },
@@ -155,3 +155,20 @@ export const PRESETS = [
 ];
 export const OPS = { '>': (a, b) => a > b, '<': (a, b) => a < b };
 if (!VIEWS[state.view]) state.view = 'trend';
+// Sonradan eklenen varsayılan sütunlar, sütunları elle düzenlenmiş görünümlere de kendi yerlerinde eklenir
+// (kullanıcının kaldırdığı sütunlar geri gelmez: her görünümün daha önce görülen varsayılanları saklanır).
+// colsSeen kaydı olmayan eski kurulumlar için o sürümden sonra eklenen sütunlar:
+const ADDED_LATER = ['divYieldAvg', 'divYieldAvgPrev'];
+state.colsSeen ||= {};
+for (const [v, def] of Object.entries(VIEWS)) {
+  const seen = state.colsSeen[v] || def.cols.filter(k => !ADDED_LATER.includes(k));
+  const cur = state.cols?.[v];
+  if (Array.isArray(cur)) {
+    def.cols.forEach((k, i) => {
+      if (seen.includes(k) || cur.includes(k)) return;
+      const before = def.cols.slice(0, i).reverse().find(x => cur.includes(x)); // varsayılan sırada kendinden önceki sütunun arkasına
+      cur.splice(before ? cur.indexOf(before) + 1 : cur.length, 0, k);
+    });
+  }
+  state.colsSeen[v] = [...def.cols];
+}

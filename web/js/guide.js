@@ -92,7 +92,7 @@ const TERMS = [
 
   // Temettü
   ['Temettü verimi', 'Yıl içinde ödenen hisse başı brüt temettü toplamı / güncel fiyat. Takvim yılı esas alınır (bu yıl ve geçen yıl ayrı).', 'Temettü'],
-  ['Dönem ortalama fiyatı verimi', 'Temettü / önceki temettünün hak kullanım gününden bu temettüye kadarki günlük kapanışların ortalaması (öncesinde temettü yoksa son 1 yıl). Tek bir günün fiyatına bağlı kalmadan, o temettüyü "kazanan" dönemdeki tipik alış fiyatına göre verimi gösterir. Yıllık değer, yıl içindeki ödemelerin toplamıdır.', 'Temettü'],
+  ['Bağıl verim', 'Temettü / önceki temettünün hak kullanım gününden bu temettüye kadarki günlük kapanışların ortalaması (öncesinde temettü yoksa son 1 yıl). Tek bir günün fiyatına bağlı kalmadan, o temettüyü "kazanan" dönemdeki tipik alış fiyatına göre verimi gösterir. Yıllık değer, yıl içindeki ödemelerin toplamıdır.', 'Temettü'],
   ['Hak kullanım tarihi (ex-date)', 'Temettünün fiyattan düşüldüğü gün. Temettü almak için hisseyi bu günden ÖNCEKİ işlem günü kapanışında elde tutmak gerekir.', 'Temettü'],
   ['Brüt / net temettü', 'Brüt: şirketin açıkladığı tutar. Net: stopaj düşüldükten sonra hesaba geçen tutar.', 'Temettü'],
   ['Stopaj', 'Temettüden kesilen vergi; bireysel yatırımcı için genellikle %15. GYO\'larda ve bazı şirketlerde %0 olabilir.', 'Temettü'],
