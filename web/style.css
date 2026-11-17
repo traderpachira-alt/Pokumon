@@ -411,3 +411,23 @@ body.noscroll { overflow: hidden; }
   .chartwrap.full .c-sub { height: 62px; }
   .chartwrap.full .seg button, .chartwrap.full .tg { padding-block: 3px; }
 }
+
+/* Rehber ve sözlük */
+.guide { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; align-items: start; }
+.guide .panel { display: flex; flex-direction: column; gap: 10px; }
+.guide-how details { border-top: 1px solid var(--line); padding: 8px 0; }
+.guide-how details:first-of-type { border-top: 0; }
+.guide-how summary { cursor: pointer; font-weight: 600; }
+.guide-how p { margin: 6px 0 0; font-size: 14px; line-height: 1.55; }
+.glossary input[type=search] { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: inherit; font: inherit; }
+.gloss-groups { display: flex; flex-wrap: wrap; gap: 6px; }
+.gchip { border: 1px solid var(--line); background: var(--surface); color: var(--muted); border-radius: 99px; padding: 3px 10px; font-size: 12px; font-weight: 600; }
+.gchip:hover { color: inherit; border-color: var(--muted); }
+.gloss-group { scroll-margin-top: 70px; }
+.gloss-group h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 8px 0 4px; }
+.gloss-group dl { margin: 0; }
+.term { padding: 8px 0; border-top: 1px solid var(--line); }
+.term dt { font-weight: 600; font-size: 14px; }
+.term dd { margin: 2px 0 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
+.term[hidden], .gloss-group[hidden] { display: none; }
+@media (max-width: 860px) { .guide { grid-template-columns: 1fr; } }
