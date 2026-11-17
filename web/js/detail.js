@@ -13,6 +13,8 @@ import { F1, F2, F4, TREND, cls, esc, fmt, ok } from './util.js';
 export let charts = [];
 export function destroyCharts() { charts.forEach(c => c.remove()); charts = []; }
 export const RANGES = { '1A': 1, '3A': 3, '6A': 6, '1Y': 12, '2Y': 24 };
+// Açılışta son mumun sağında bırakılan boşluk (görünen genişliğe oranı): son mumlar kenara yapışmaz, ortaya yakın durur
+export const RIGHT_SPACE = 0.35;
 // Ana grafik katmanları: [anahtar, etiket, renk değişkeni]
 export const OVERLAYS = [
   ['sma20', 'SMA20', '--c-sma20'], ['sma50', 'SMA50', '--c-sma50'], ['sma200', 'SMA200', '--c-sma200'],
@@ -121,7 +123,7 @@ export async function renderDetail(t) {
     ${PANES.map(([k, , title]) => `<div class="c-sub" id="pane-${k}"${state.chart[k] ? '' : ' hidden'}><span class="lbl">${title}</span></div>`).join('')}
     <button type="button" class="fullclose" data-cview="full" aria-label="Tam ekrandan çık">✕</button>
   </div>
-  <p class="charthint muted">Kaydırmak için sürükleyin, yakınlaştırmak için tekerlek ya da iki parmak; dikey ölçek için sağdaki fiyat eksenini sürükleyin, çift tıklayınca otomatiğe döner.</p>
+  <p class="charthint muted">Kaydırmak için sürükleyin, yakınlaştırmak için tekerlek ya da iki parmak. Fiyat ölçeği: sağdaki fiyat ekseninin üzerinde tekerlek ya da eksene basılı tutup yukarı/aşağı sürükleme; sonra grafik serbestçe yukarı/aşağı da kaydırılır. Eksene çift tıklama ya da ↺ Sıfırla otomatik ölçeğe döner.</p>
   </div>
 
   <div class="panels">
@@ -334,7 +336,35 @@ export function drawCharts(h) {
     showLegend(i ?? T.length - 1);
   });
 
+  charts.forEach((c, i) => priceAxisGestures(i === 0 ? $('#cMain') : $(`#pane-${subs[i - 1]}`), c));
   setRange(state.chart.range, T);
+}
+/* Fiyat ekseninde serbest ölçekleme
+   - Fare tekerleği sağdaki fiyat ekseninin üzerindeyken fiyat ölçeğini büyütür/küçültür (aşağı = uzaklaş, yukarı = yakınlaş).
+     Kütüphane (4.x) fiyat aralığını koddan ayarlamaya izin vermediği için tekerlek hareketi, eksende yapılan kısa bir
+     dikey sürüklemeye çevrilir; ölçekleme kütüphanenin kendi eksen sürüklemesiyle yapılır.
+   - Telefonda eksene basılı tutup yukarı/aşağı sürüklemek ölçeği değiştirir; bu sırada sayfa kaymaz.
+   Ölçek elle değiştirilince grafik gövdesi de serbestçe yukarı/aşağı kaydırılabilir. ↺ Sıfırla ya da eksene çift
+   tıklama/dokunma otomatik ölçeğe döner. */
+function priceAxisGestures(el, chart) {
+  if (!el) return;
+  const inAxis = x => { const r = el.getBoundingClientRect(); return x >= r.right - chart.priceScale('right').width(); };
+  let acc = 0;
+  el.addEventListener('wheel', e => {
+    if (!inAxis(e.clientX)) return; // grafiğin üzerinde tekerlek: zaman ekseni yakınlaştırma (kütüphanenin kendi davranışı)
+    e.preventDefault(); e.stopPropagation(); // kütüphanenin zaman yakınlaştırmasına ulaşmasın
+    acc += e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1) * 0.35;
+    if (Math.abs(acc) < 8) return; // çok küçük adımlar birikir (tıklama/çift tıklama sanılmasın)
+    const dy = Math.max(-60, Math.min(60, acc)), x = e.clientX, y = e.clientY;
+    acc = 0;
+    const fire = (type, yy) => e.target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window,
+      clientX: x, clientY: yy, screenX: x, screenY: yy, button: 0, buttons: type === 'mouseup' ? 0 : 1 }));
+    fire('mousedown', y); fire('mousemove', y + dy / 2); fire('mousemove', y + dy); fire('mouseup', y + dy);
+  }, { passive: false, capture: true });
+  let axisTouch = false;
+  el.addEventListener('touchstart', e => { axisTouch = e.touches.length === 1 && inAxis(e.touches[0].clientX); }, { passive: true });
+  el.addEventListener('touchmove', e => { if (axisTouch && e.cancelable) e.preventDefault(); }, { passive: false });
+  el.addEventListener('touchend', () => { axisTouch = false; }, { passive: true });
 }
 // Tam ekran: grafik ve araç çubuğu tüm ekranı kaplar (iOS dahil her tarayıcıda çalışan CSS yöntemi)
 export function toggleFull(force) {
@@ -353,6 +383,7 @@ export function setRange(r, T) {
   const last = new Date(T.at(-1) + 'T00:00:00Z');
   const from = new Date(last); from.setUTCMonth(from.getUTCMonth() - RANGES[r]);
   const fromS = from.toISOString().slice(0, 10);
-  if (fromS <= T[0]) main.timeScale().fitContent();
-  else main.timeScale().setVisibleRange({ from: fromS, to: T.at(-1) });
+  const i0 = fromS <= T[0] ? 0 : Math.max(0, T.findIndex(d => d >= fromS));
+  const n = T.length - 1, bars = Math.max(n - i0, 10);
+  main.timeScale().setVisibleLogicalRange({ from: i0 - 0.5, to: n + bars * RIGHT_SPACE / (1 - RIGHT_SPACE) });
 }
