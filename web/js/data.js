@@ -4,6 +4,8 @@ import { F2, cls, esc, fmt, ok } from './util.js';
 
 export let DATA = null, BY = new Map(), MEDIANS = {}, DIV_Y = new Date().getFullYear(), FX = null;
 export const HIST = new Map();
+// Testler için: özeti ve kur geçmişini doğrudan yükle (fetch olmadan)
+export function setData(d, fx = null) { DATA = d; FX = fx; BY = new Map((d?.stocks || []).map(s => [s.t, s])); }
  // tarayıcı dışında (testler) null
 
 /* ============================================================

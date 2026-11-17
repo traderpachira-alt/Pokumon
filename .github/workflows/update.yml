@@ -10,6 +10,7 @@ on:
     paths:
       - "web/**"
       - "scripts/**"
+      - "tests/**"
       - ".github/workflows/update.yml"
 
 permissions:
@@ -27,6 +28,13 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+
+      # Portföy hesap testleri: biri bile başarısız olursa yayın yapılmaz.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Testleri çalıştır
+        run: node --test tests/*.test.mjs
 
       - uses: actions/setup-python@v5
         with:

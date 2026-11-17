@@ -78,7 +78,12 @@ pip install -r scripts/requirements.txt
 scripts/dev.sh          # ÖRNEK (rastgele) veriyle, internet gerekmez
 scripts/dev.sh --real   # gerçek veriyle
 # -> http://localhost:8000
+node --test tests/*.test.mjs   # portföy hesap testleri (yayından önce GitHub'da da çalışır)
 ```
+
+Kod yapısı: `scripts/` veri çekme (Python), `web/` arayüz — `web/js/` altında modüller
+(`pfcore.js` portföy hesapları, `portfolio.js` portföy ekranı, `screener.js` tarama, `detail.js` hisse sayfası,
+`sync.js` Gist senkronu …), `web/ind.js` göstergeler, `tests/` testler.
 
 ## Bilinen sınırlar
 
