@@ -48,6 +48,9 @@ export const FIELDS = {
   divYears5: { label: 'Son 5 yıl',        f: x => !ok(x) ? '—' : `${x}/5`, title: 'Bu yıl dahil son 5 takvim yılının kaçında temettü ödendi' },
   divStreak: { label: 'Kesintisiz',       f: x => !ok(x) || x === 0 ? '—' : x + ' yıl', title: 'Kaç yıldır her yıl temettü ödüyor (yaklaşık 5 yıllık veriyle; en fazla 6 takvim yılı görünür)' },
   divGrowth: { label: 'Temettü değişimi', f: fmt.pct, pct: 1, color: 1 },
+  divYieldAvg:     { label: 'Bu yıl ort. fiyat verimi', f: fmt.pctPlain, pct: 1 },
+  divYieldAvgPrev: { label: 'Geçen yıl ort. fiyat verimi', f: fmt.pctPlain, pct: 1 },
+  lastDivYieldAvg: { label: 'Son ödeme ort. fiyat verimi', f: fmt.pctPlain, pct: 1, title: 'Son temettü / önceki temettüden bu temettüye kadarki ortalama kapanış fiyatı' },
   divAvg5:   { label: '5Y ort. verim',    f: fmt.pctPlain, pct: 1, title: 'Son 5 tamamlanmış yılın ortalama yıllık temettüsü / güncel fiyat' },
   nextDivNet:   { label: 'Sıradaki tutar (net) ₺', f: fmt.price, title: 'Açıklanan sıradaki temettünün stopaj sonrası pay başı tutarı (temettuhisseleri.com)' },
   nextDivYield: { label: 'Sıradaki verim (net)',   f: fmt.pctPlain, pct: 1, title: 'Sıradaki net temettü / güncel fiyat' },
@@ -64,7 +67,7 @@ export const VIEWS = {
   fiyat:    { label: 'Fiyat',    cols: ['_idx', 'last', 'chg1d', 'chg1w', 'chg1m', 'chg3m', 'chg1y', 'ytd', 'turnover', 'volRatio', 'mcap'] },
   trend:    { label: 'Trend',    cols: ['_idx', 'last', 'chg1d', '_trend', '_st', '_ichi', '_cross', 'supDist', '_supStr', 'resDist', '_resStr', 'vsSma50', 'vsSma200', 'vsVwma20', 'stDist', 'distHi52', 'rs3m'] },
   momentum: { label: 'Momentum', cols: ['_idx', 'last', 'chg1d', 'rsi', 'stochK', 'macdPct', 'fisher', '_cross', 'volRatio', 'atrPct', 'volat', 'beta'] },
-  temettu:  { label: 'Temettü',  cols: ['_idx', 'last', 'divYield', 'divCur', 'divYieldPrev', 'divPrev', 'divGrowth', 'divFreq', '_nextDiv', 'nextDivNet', 'lastDivDate', 'lastDivAmt', 'divYears5', 'divStreak', 'divAvg5', 'payout'] },
+  temettu:  { label: 'Temettü',  cols: ['_idx', 'last', 'divYield', 'divYieldAvg', 'divCur', 'divYieldPrev', 'divYieldAvgPrev', 'divPrev', 'divGrowth', 'divFreq', '_nextDiv', 'nextDivNet', 'lastDivDate', 'lastDivAmt', 'divYears5', 'divStreak', 'divAvg5', 'payout'] },
   temel:    { label: 'Temel',    cols: ['_idx', 'last', 'mcap', 'pe', 'pb', 'evEbitda', 'netMargin', 'roe', 'de', 'revGrowth', 'epsGrowth', 'divYield', 'freeFloat', '_sector'] },
 };
 export const ST = { up: ['Al', 'up'], down: ['Sat', 'down'] };

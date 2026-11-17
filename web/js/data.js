@@ -19,6 +19,9 @@ export async function loadSummary() {
   Object.assign(FIELDS.divYield, { label: `${Y} verimi`, title: `${Y} yılında şimdiye kadar ödenen hisse başı brüt temettü / güncel fiyat` });
   Object.assign(FIELDS.divCur, { label: `${Y} temettü ₺`, title: `${Y} yılında şimdiye kadar ödenen hisse başı brüt temettü toplamı (TL)` });
   Object.assign(FIELDS.divYieldPrev, { label: `${P} verimi`, title: `${P} yılında ödenen toplam hisse başı temettü / güncel fiyat` });
+  const AVG = 'her ödeme, önceki temettünün hak kullanım gününden bu temettüye kadarki ortalama kapanış fiyatına bölünür (ilk temettüde son 1 yıl)';
+  Object.assign(FIELDS.divYieldAvg, { label: `${Y} ort. fiyat verimi`, title: `${Y} temettülerinin dönem ortalama fiyatına göre verimi: ${AVG}; yıl içindeki ödemeler toplanır` });
+  Object.assign(FIELDS.divYieldAvgPrev, { label: `${P} ort. fiyat verimi`, title: `${P} temettülerinin dönem ortalama fiyatına göre verimi: ${AVG}; yıl içindeki ödemeler toplanır` });
   Object.assign(FIELDS.divPrev, { label: `${P} temettü ₺`, title: `${P} yılında ödenen hisse başı brüt temettü toplamı (TL)` });
   Object.assign(FIELDS.divFreq, { label: `${Y} ödeme`, title: `${Y} yılındaki temettü ödemesi sayısı` });
   Object.assign(FIELDS.divGrowth, { label: `Değişim ${Y}/${P}`, title: `${Y} toplamı (şimdiye kadar) / ${P} toplamı − 1. ${Y} içinde henüz ödeme yoksa boş.` });

@@ -178,7 +178,12 @@ export function renderDivPanel(s, h) {
   // Ödeme günündeki (ya da hemen önceki işlem günündeki) kapanışa göre o günkü verim
   const pxAt = d => { if (closeOn.has(d)) return closeOn.get(d); const i = h.d.findIndex(x => x > d); return i > 0 ? h.c[i - 1] : null; };
   const byYear = {};
-  for (const [d, a] of div) byYear[d.slice(0, 4)] = (byYear[d.slice(0, 4)] || 0) + a;
+  const avgYear = {}; // yıl → dönem ortalama fiyatı verimleri toplamı (bir ödemesi hesaplanamayan yıl boş)
+  for (const [d, a, , ya] of div) {
+    const y = d.slice(0, 4);
+    byYear[y] = (byYear[y] || 0) + a;
+    avgYear[y] = ya == null || avgYear[y] === null ? null : (avgYear[y] || 0) + ya;
+  }
   const years = Object.keys(byYear).sort().reverse();
   const up = s.divUpcoming || [];
   const upHtml = up.length ? `<div class="upcoming"><b>Açıklanan temettü${up.length > 1 ? 'ler' : ''}</b>${up.map(u =>
@@ -189,19 +194,20 @@ export function renderDivPanel(s, h) {
     <dl class="kv">
       <dt>${DIV_Y} verimi</dt><dd>${fmt.pctPlain(s.divYield)}</dd><dd class="note">${s.divCur ? fmt.price(s.divCur) + ' ₺' + (s.divFreq > 1 ? ` (${s.divFreq} ödeme)` : '') : 'henüz ödeme yok'}</dd>
       <dt>${DIV_Y - 1} verimi</dt><dd>${fmt.pctPlain(s.divYieldPrev)}</dd><dd class="note">${s.divPrev ? fmt.price(s.divPrev) + ' ₺' : '—'}</dd>
+      <dt title="Her ödeme, önceki temettüden o temettüye kadarki ortalama kapanış fiyatına bölünür">Ort. fiyat verimi ${DIV_Y}</dt><dd>${fmt.pctPlain(s.divYieldAvg)}</dd><dd class="note">${DIV_Y - 1}: ${fmt.pctPlain(s.divYieldAvgPrev)}</dd>
       <dt>Son 5 yıl</dt><dd>${FIELDS.divYears5.f(s.divYears5)}</dd><dd class="note">${s.divStreak ? s.divStreak + ' yıldır kesintisiz' : ''}</dd>
       <dt>5 yıllık ort. verim</dt><dd>${fmt.pctPlain(s.divAvg5)}</dd><dd class="note"></dd>
       <dt>Temettü değişimi</dt><dd class="${cls(s.divGrowth)}">${fmt.pct(s.divGrowth)}</dd><dd class="note">${DIV_Y} / ${DIV_Y - 1}</dd>
       <dt>Dağıtma oranı</dt><dd>${fmt.pctPlain(s.payout)}</dd><dd class="note">${s.payout != null ? 'temettü / net kâr' : ''}</dd>
     </dl>
-    <div class="tablewrap flat"><table class="grid"><thead><tr><th class="tk">Tarih</th><th>Hisse başı ₺</th><th title="Ödeme günündeki kapanışa göre">O günkü verim</th><th>Bugünkü fiyata göre</th></tr></thead><tbody>
-      ${div.slice(0, 12).map(([d, a, y]) => { const p = pxAt(d); const yy = y ?? (p ? a / p : null); return `<tr><td class="tk">${fmt.date(d)}</td><td>${fmt.price(a)}</td><td>${fmt.pctPlain(yy)}</td><td>${fmt.pctPlain(a / s.last)}</td></tr>`; }).join('')}
+    <div class="tablewrap flat"><table class="grid"><thead><tr><th class="tk">Tarih</th><th>Hisse başı ₺</th><th title="Ödeme günündeki (temettü düşülmeden önceki) kapanışa göre verim">O gün</th><th title="Önceki temettüden bu temettüye kadarki ortalama kapanış fiyatına göre verim (ilk temettüde son 1 yıl)">Dönem ort.</th><th title="Bugünkü fiyata göre verim">Bugün</th></tr></thead><tbody>
+      ${div.slice(0, 12).map(([d, a, y, ya]) => { const p = pxAt(d); const yy = y ?? (p ? a / p : null); return `<tr><td class="tk">${fmt.date(d)}</td><td>${fmt.price(a)}</td><td>${fmt.pctPlain(yy)}</td><td>${fmt.pctPlain(ya)}</td><td>${fmt.pctPlain(a / s.last)}</td></tr>`; }).join('')}
     </tbody></table></div>
-    <div class="tablewrap flat"><table class="grid"><thead><tr><th class="tk">Yıl</th><th>Toplam ₺</th><th>Bugünkü fiyata göre</th></tr></thead><tbody>
-      ${years.map(y => `<tr><td class="tk">${y}</td><td>${fmt.price(byYear[y])}</td><td>${fmt.pctPlain(byYear[y] / s.last)}</td></tr>`).join('')}
+    <div class="tablewrap flat"><table class="grid"><thead><tr><th class="tk">Yıl</th><th>Toplam ₺</th><th title="Yıl içindeki her ödemenin dönem ortalama fiyatına göre veriminin toplamı">Dönem ort.</th><th title="Bugünkü fiyata göre verim">Bugün</th></tr></thead><tbody>
+      ${years.map(y => `<tr><td class="tk">${y}</td><td>${fmt.price(byYear[y])}</td><td>${fmt.pctPlain(avgYear[y])}</td><td>${fmt.pctPlain(byYear[y] / s.last)}</td></tr>`).join('')}
     </tbody></table></div>
   </div>
-  <p class="muted" style="font-size:12px;margin:8px 0 0">Geçmiş ödemeler brüt, bedelsiz sermaye artırımlarına göre düzeltilmiş (temettuhisseleri.com ve Yahoo Finance karşılaştırılarak); tarih, hak kullanım tarihidir. Açıklanan temettüler stopaj sonrası net tutardır (temettuhisseleri.com).</p>`;
+  <p class="muted" style="font-size:12px;margin:8px 0 0">Verim: <b>O gün</b> ödeme günündeki fiyata, <b>Dönem ort.</b> önceki temettüden bu temettüye kadarki ortalama kapanış fiyatına (ilk temettüde son 1 yıl), <b>Bugün</b> güncel fiyata göre. Geçmiş ödemeler brüt, bedelsiz sermaye artırımlarına göre düzeltilmiş (temettuhisseleri.com ve Yahoo Finance karşılaştırılarak); tarih, hak kullanım tarihidir. Açıklanan temettüler stopaj sonrası net tutardır (temettuhisseleri.com).</p>`;
 }
 export function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 export function drawCharts(h) {

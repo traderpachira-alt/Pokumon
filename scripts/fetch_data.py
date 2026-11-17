@@ -151,11 +151,30 @@ def vwma(c, v, n=20):
     return (cv / vs.where(vs > 0)).to_numpy()
 
 
+def avg_price_yields(df: pd.DataFrame) -> pd.Series:
+    """Her temettü için 'dönem ortalama fiyatı verimi': ödenen tutar / önceki temettünün hak kullanım gününden bu
+    temettünün hak kullanım gününe kadarki (o gün hariç) günlük kapanışların ortalaması. Öncesinde temettü yoksa
+    son 365 günün ortalaması; yeterli fiyat geçmişi yoksa (60 işlem gününden az) boş."""
+    if "Dividends" not in df.columns:
+        return pd.Series(dtype=float)
+    d = df["Dividends"]
+    d = d[d > 0]
+    close, out, prev = df["Close"], {}, None
+    for day, amt in d.items():
+        start = prev if prev is not None else day - pd.DateOffset(days=365)
+        win = close[(close.index >= start) & (close.index < day)]
+        if prev is None and close.index[0] > start + pd.DateOffset(days=30):
+            win = win.iloc[:0]  # geçmiş bir yılı kapsamıyor
+        out[day] = float(amt) / float(win.mean()) if len(win) >= (1 if prev is not None else 60) and win.mean() > 0 else None
+        prev = day
+    return pd.Series(out, dtype=float)
+
+
 def div_metrics(df: pd.DataFrame) -> dict:
     """Temettü ölçütleri, TAKVİM YILI bazında (Yahoo temettü geçmişi, bölünmelere göre düzeltilmiş, hisse başı brüt TL).
     divCur: bu yıl şimdiye kadar ödenen toplam; divPrev: geçen yılın toplamı; verimler güncel fiyata göre."""
     keys = ("divCur", "divPrev", "divYield", "divYieldPrev", "lastDivDate", "lastDivAmt", "divFreq",
-            "divYears5", "divStreak", "divGrowth", "divAvg5", "divRecent")
+            "divYears5", "divStreak", "divGrowth", "divAvg5", "divRecent", "divYieldAvg", "divYieldAvgPrev", "lastDivYieldAvg")
     out = dict.fromkeys(keys)
     if "Dividends" not in df.columns:
         return out
@@ -164,7 +183,7 @@ def div_metrics(df: pd.DataFrame) -> dict:
     d = d[d > 0]
     out["divYears5"], out["divStreak"] = 0, 0
     if d.empty:
-        out.update(divCur=0.0, divPrev=0.0, divYield=0.0, divYieldPrev=0.0, divFreq=0)
+        out.update(divCur=0.0, divPrev=0.0, divYield=0.0, divYieldPrev=0.0, divFreq=0, divYieldAvg=0.0, divYieldAvgPrev=0.0)
         return out
     this = end.year
     by_year = d.groupby(d.index.year).sum()
@@ -190,6 +209,13 @@ def div_metrics(df: pd.DataFrame) -> dict:
     out["divStreak"] = streak
     full = [by_year.get(yy, 0.0) for yy in range(this - 5, this)]  # tamamlanmış son 5 yıl
     out["divAvg5"] = (sum(full) / 5) / last_px if last_px else None
+    # Dönem ortalama fiyatı verimi: yıl içindeki her ödemenin kendi dönem ortalamasına göre verimi toplanır.
+    # O yılın bir ödemesi hesaplanamıyorsa (fiyat geçmişi yetersiz) yıl toplamı boş bırakılır.
+    ay = avg_price_yields(df)
+    for key, yr in (("divYieldAvg", this), ("divYieldAvgPrev", this - 1)):
+        v = ay[ay.index.year == yr]
+        out[key] = None if v.isna().any() else float(v.sum())
+    out["lastDivYieldAvg"] = None if ay.empty or pd.isna(ay.iloc[-1]) else float(ay.iloc[-1])
     return out
 
 
@@ -867,10 +893,12 @@ def write_hist(path: Path, df: pd.DataFrame):
     div = div[div > 0]
     # O günkü verim: temettü düşülmeden önceki fiyata (bir önceki işlem gününün kapanışına) göre
     full_close = df["Close"].shift(1)
+    avg_y = avg_price_yields(df)
     df = df[df.index >= df.index[-1] - pd.DateOffset(years=2)]  # grafik için son 2 yıl yeterli
     payload = {
-        # [tarih, hisse başı TL, o günkü kapanışa göre verim]
-        "div": [[d.strftime("%Y-%m-%d"), round(float(x), 4), round(float(x) / float(full_close[d]), 5) if pd.notna(full_close.get(d)) else None]
+        # [tarih, hisse başı TL, o günkü kapanışa göre verim, dönem ortalama fiyatına göre verim]
+        "div": [[d.strftime("%Y-%m-%d"), round(float(x), 4), round(float(x) / float(full_close[d]), 5) if pd.notna(full_close.get(d)) else None,
+                 round(float(avg_y[d]), 5) if pd.notna(avg_y.get(d)) else None]
                 for d, x in div.items()],
         "d": [d.strftime("%Y-%m-%d") for d in df.index],
         "o": r(df["Open"]), "h": r(df["High"]), "l": r(df["Low"]), "c": r(df["Close"]),
