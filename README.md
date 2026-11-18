@@ -70,6 +70,11 @@ net borç/FAVÖK 15, süreklilik 15, kesinti geçmişi 10, özkaynak kârlılı�
 dışarıda bırakılıp 100'e ölçeklenir) ve **verim bandı** (hissenin piyasaya göre veriminin — son 12 ay verimi / temettü ödeyenlerin medyan verimi —
 kendi 4 yıllık geçmişindeki yüzdelik dilimi; piyasa genelindeki verim değişimi ayıklanır, mutlak dilim de verilir). Hisse sayfasındaki mali tablolar (8 çeyrek / 3 yıl) `data/fin/KOD.json` dosyalarından gelir.
 
+Sinyaller (`scripts/signals.py`, testleri `tests/test_signals.py`): dört alım kurulumu (destekten dönüş, hacimli kırılım,
+aşırı satımdan dönüş, Supertrend dönüşü), her biri giriş, stop ve hedefle. Kurallar her güncellemede son 4 yılda aynı kodla
+geriye dönük test edilir: giriş ertesi gün açılışta, aynı gün stop ve hedef görülürse stop, en fazla 40 gün, %0,2 komisyon+kayma.
+Ek onay filtreleri 2022–2024 verisinde seçilip 2025–2026 verisinde doğrulandı. Sonuçlar `data/signals.json`.
+
 Temettü: temettuhisseleri.com tutarları **net** ve bedelsizlere göre **düzeltilmemiş**tir; Yahoo'nun bölünme
 çarpanları ve o tarihteki stopajla (2022–2024 arası %10, öncesi ve sonrası %15, GYO/YO %0) brüt, düzeltilmiş
 tutara çevrilir (`scripts/temettu.py`). İki kaynak uyuşuyorsa Yahoo tutarı kullanılır; fiyatın %1'inden büyük bir

@@ -13,6 +13,7 @@ import { F1, F2, F4, TREND, cls, esc, fmt, ok } from './util.js';
    ============================================================ */
 export let charts = [];
 export function destroyCharts() { charts.forEach(c => c.remove()); charts = []; }
+export const SIG_NAMES = { destek: 'Destekten dönüş', kirilim: 'Hacimli kırılım', dipdonus: 'Aşırı satımdan dönüş', supertrend: 'Supertrend dönüşü' };
 export const RANGES = { '1A': 1, '3A': 3, '6A': 6, '1Y': 12, '2Y': 24 };
 // Açılışta son mumun sağında bırakılan boşluk (görünen genişliğe oranı): son mumlar kenara yapışmaz, ortaya yakın durur
 export const RIGHT_SPACE = 0.35;
@@ -155,6 +156,8 @@ export async function renderDetail(t) {
     </section>
   </div>
 
+  ${(s.sig || []).map(g => `<p class="note-ok sigline">Aktif sinyal: <b>${esc(SIG_NAMES[g.k] || g.k)}</b> (${fmt.date(g.d)}) · giriş ${fmt.price(g.e)} · stop ${fmt.price(g.s)} · hedef ${fmt.price(g.tp)}
+    ${g.st === 'pending' ? '· giriş bir sonraki seansın açılışında' : '· pozisyonda'} · <a href="#/sinyal">Sinyaller</a></p>`).join('')}
   ${isIdx ? '' : srPanelHtml(s)}
   ${isIdx ? '' : '<section class="panel" id="divPanel"><h2>Temettü geçmişi</h2><p class="muted">Yükleniyor…</p></section>'}
   ${isIdx ? '' : '<section class="panel" id="qualPanel"><h2>Temettü güvenliği ve finansal kalite</h2><p class="muted">Yükleniyor…</p></section>'}
@@ -246,6 +249,12 @@ export function drawCharts(h) {
   candle.priceScale().applyOptions({ scaleMargins: { top: 0.08, bottom: 0.22 } });
   candle.setData(T.map((time, i) => ({ time, open: h.o[i], high: h.h[i], low: h.l[i], close: h.c[i] })));
   candle.priceScale().applyOptions({ mode: { lin: 0, log: 1, pct: 2 }[C.scale] ?? 0 });
+  // Aktif sinyal: giriş / stop / hedef çizgileri
+  const sigT = decodeURIComponent(location.hash.slice(4)).toUpperCase();
+  for (const g of BY.get(sigT)?.sig || []) {
+    const line = (price, color, title) => candle.createPriceLine({ price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title });
+    line(g.e, css('--accent'), 'Giriş'); line(g.s, css('--down'), 'Stop'); line(g.tp, css('--up'), 'Hedef');
+  }
   if (C.vol !== false) {
     const vol = main.addHistogramSeries({ priceScaleId: 'vol', priceFormat: { type: 'volume' }, lastValueVisible: false, priceLineVisible: false });
     main.priceScale('vol').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });

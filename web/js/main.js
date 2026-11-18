@@ -10,6 +10,7 @@ import { listOf, persist, state, ui } from './store.js';
 import { sync, syncConnect, syncDisconnect, syncNow, syncOn } from './sync.js';
 import { backupJson, backupName, mergeData, parseBackup, replaceData } from './backup.js';
 import { renderGuide } from './guide.js';
+import { renderSignals } from './signals.js';
 import { parseCode, renderTransfer } from './transfer.js';
 
 addEventListener('online', () => { if (syncOn()) syncNow(); });
@@ -372,13 +373,14 @@ export function route() {
   const onScreener = !!view.querySelector('.toolbar');
   if (onScreener) lastScroll = view.querySelector('.tablewrap')?.scrollTop || 0;
   const m = h.match(/^#\/h\/([A-Z0-9]+)$/i);
-  const section = m ? 'hisse' : h.startsWith('#/karsilastir') ? 'karsilastir' : h.startsWith('#/aktar') ? 'aktar' : h.startsWith('#/portfoy') ? 'portfoy' : h.startsWith('#/rehber') ? 'rehber' : 'tarama';
+  const section = m ? 'hisse' : h.startsWith('#/karsilastir') ? 'karsilastir' : h.startsWith('#/aktar') ? 'aktar' : h.startsWith('#/portfoy') ? 'portfoy' : h.startsWith('#/rehber') ? 'rehber' : h.startsWith('#/sinyal') ? 'sinyal' : 'tarama';
   document.querySelectorAll('[data-nav]').forEach(a => a.toggleAttribute('aria-current', a.dataset.nav === section));
   if (m) renderDetail(m[1].toUpperCase());
   else if (section === 'karsilastir') renderCompare();
   else if (section === 'aktar') renderTransfer(h.startsWith('#/aktar/') ? h.slice(8) : null);
   else if (section === 'portfoy') renderPortfolio();
   else if (section === 'rehber') renderGuide();
+  else if (section === 'sinyal') renderSignals();
   else {
     renderScreener();
     const tw = view.querySelector('.tablewrap');

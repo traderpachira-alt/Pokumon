@@ -14,6 +14,9 @@ const GUIDE = [
   ['Hisse sayfası', `Tablodaki satıra dokunun. Grafikte dönem, göstergeler ve ölçek (doğrusal / log / %) seçilir;
     fareyle ya da iki parmakla yakınlaştırıp kaydırabilir, ⤢ Tam ekran ile büyütebilirsiniz. Altta destek/direnç bölgeleri,
     temel oranlar, temettü geçmişi ve varsa tedbirler bulunur. ★ hisseyi izleme listesine ekler.`],
+  ['Sinyaller', `Gün sonu kapanışına göre dört alım kurulumu (destekten dönüş, hacimli kırılım, aşırı satımdan dönüş, Supertrend dönüşü) taranır;
+    her sinyalin girişi, stopu ve hedefi bellidir. Her kurulumun kuralları son 4 yılda geriye dönük test edilmiştir; sonuçlar kurulum kartlarında ve
+    son 60 günün sonuçlanan sinyalleri listesindedir. Aktif sinyali olan hissenin grafiğinde giriş, stop ve hedef çizgileri görünür.`],
   ['Karşılaştır', `En fazla 5 hisseyi ve BIST 100'ü aynı başlangıçtan (%0) itibaren getiri olarak üst üste çizer.`],
   ['Portföy', `<b>+ Varlık ekle</b> ile hisse (Temettü ya da Trend/Momentum), emtia/döviz ya da kripto ekleyin. Her varlık bir işlem
     listesidir: alım ve satımlar ortalama maliyet yöntemiyle hesaplanır. Alımı TL bakiyesinden ödeyebilir, satış gelirini TL bakiyesine
@@ -105,6 +108,10 @@ const TERMS = [
   ['5Y ort. verim', 'Son 5 tamamlanmış yılın ortalama yıllık temettüsü / güncel fiyat.', 'Temettü'],
   ['Sıradaki temettü', 'Açıklanmış, henüz ödenmemiş temettü (net tutar ve tarih); kaynak temettuhisseleri.com.', 'Temettü'],
 
+  ['R (risk birimi)', 'Bir işlemde göze alınan kayıp: giriş fiyatı − stop. Sonuçlar R cinsinden verilir; +2R riske edilenin iki katı kazanç, −1R stop olmak demektir. Pozisyon büyüklüğü 1R kaybı göze alınabilecek tutara göre belirlenir.', 'Sinyaller'],
+  ['Kurulum (setup)', 'Giriş koşulu, stop ve hedefi önceden tanımlı işlem kuralı.', 'Sinyaller'],
+  ['Geriye dönük test', 'Kuralların geçmiş veride, yalnızca o güne kadar bilinen bilgiyle uygulanması. Burada giriş ertesi gün açılışta yapılır, aynı gün stop ve hedef görülürse stop sayılır, komisyon ve kayma düşülür.', 'Sinyaller'],
+  ['Kâr faktörü', 'Kazanan işlemlerin toplam kazancı / kaybeden işlemlerin toplam kaybı. 1\'in üstü kârlı; 1,2–1,5 gerçekçi bir sistem için iyi sayılır.', 'Sinyaller'],
   // Portföy
   ['Ortalama maliyet', 'Elde kalan payların birim maliyeti: tüm alımların (komisyon dahil) toplamı / adet. Satışlar ortalamayı değiştirmez.', 'Portföy'],
   ['Gerçekleşen K/Z', 'Satışlarda elde edilen kâr/zarar: (satış fiyatı − ortalama maliyet) × adet − komisyon.', 'Portföy'],
