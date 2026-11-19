@@ -734,7 +734,7 @@ def quality_scores(t: str, df: pd.DataFrame, m: dict, f: dict, fin: dict | None,
     return out
 
 
-def write_signals(out: Path, prices: dict[str, pd.DataFrame], stocks: list[dict]):
+def write_signals(out: Path, prices: dict[str, pd.DataFrame], stocks: list[dict], idx: pd.DataFrame | None = None):
     t0 = time.time()
     R = signals.run(prices)
     by = {s["t"]: s for s in stocks}
@@ -748,6 +748,7 @@ def write_signals(out: Path, prices: dict[str, pd.DataFrame], stocks: list[dict]
         s.setdefault("sig", []).append({k: a[k] for k in ("k", "d", "e", "s", "tp", "st")})
     payload = {
         "updated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        "account": signals.ACCOUNT, "bench": signals.bench(idx),
         "params": {"hold": signals.HOLD_MAX, "cost": signals.COST, "minTurnover": signals.MIN_TURNOVER,
                    "riskMin": signals.RISK_MIN, "riskMax": signals.RISK_MAX, "chase": signals.CHASE_R, "tpRule": signals.TP_RULE},
         "setups": {k: {**v, "stats": R["stats"].get(k, {})} for k, v in signals.SETUPS.items()},
@@ -966,7 +967,7 @@ def main():
 
     # Sinyaller: kurulumlar, geriye dönük test ve aktif sinyaller (data/signals.json); aktif sinyal hisse özetine de eklenir
     try:
-        write_signals(out, {t: prices[t] for t in ok}, stocks)
+        write_signals(out, {t: prices[t] for t in ok}, stocks, prices.get(INDEX))
     except Exception as e:  # noqa: BLE001 — sinyal hatası yayını durdurmasın
         print(f"  Sinyaller üretilemedi ({e}).", flush=True)
 

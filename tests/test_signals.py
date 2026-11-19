@@ -56,12 +56,34 @@ class SimulateTest(unittest.TestCase):
         self.assertEqual(self.r([(103, 104, 102, 103)])["status"], "skip")   # 0,5R'den fazla yukarıda: kaçtı
         self.assertNotEqual(self.r([(102, 103, 101, 102)])["status"], "skip")
 
+    def test_r_uses_planned_risk(self):
+        # Açılış stopa çok yakın (95,10) gelip hedefe giderse kazanç planlanan riske göre ölçülür; şişmez
+        x = self.r([(95.1, 111, 95.05, 110)])
+        self.assertEqual(x["status"], "tp")
+        self.assertAlmostEqual(x["r"], (110 - 95.1) / 5 - S.COST * 95.1 / 5, places=6)
+        self.assertLess(x["r"], 3.5)
+        self.assertAlmostEqual(x["pct"], 110 / 95.1 - 1 - S.COST, places=6)
+
     def test_pending_open_time(self):
         self.assertEqual(S.simulate(bars([(100, 100, 100, 100)]), 0, self.sig)["status"], "pending")
         self.assertEqual(self.r([(100, 102, 99, 101)] * 5)["status"], "open")
         x = self.r([(100, 102, 99, 101)] * (S.HOLD_MAX + 3))
         self.assertEqual(x["status"], "time")
         self.assertEqual(x["exit_t"], S.HOLD_MAX)
+
+
+class AccountTest(unittest.TestCase):
+    def test_sizing_and_limits(self):
+        d = pd.bdate_range("2024-01-01", periods=30)
+        win = {"d0": d[0], "d1": d[5], "pct": 0.10, "rp": 0.05}    # %5 stop, %10 kazanç → 1R=%1 ile pozisyon %20, +%2
+        lose = {"d0": d[6], "d1": d[8], "pct": -0.05, "rp": 0.05}  # −1R → −%1
+        a = S.account([win, lose], capital=100_000, risk=0.01, max_pos=10)
+        self.assertEqual(a["taken"], 2)
+        self.assertAlmostEqual(a["final"], 100_000 * 1.02 * 0.99, delta=2)
+        # Aynı gün çok sinyal: en fazla max_pos pozisyon; nakit yetmezse küçülür (kaldıraç yok)
+        many = [{"d0": d[0], "d1": d[3], "pct": 0.0, "rp": 0.01} for _ in range(5)]  # her biri %100 pozisyon isterdi
+        self.assertEqual(S.account(many, max_pos=3)["taken"], 1)
+        self.assertIsNone(S.account([]))
 
 
 class SetupTest(unittest.TestCase):

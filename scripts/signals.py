@@ -23,7 +23,8 @@ COST = 0.002           # gidiş-dönüş komisyon + kayma (fiyatın oranı)
 MIN_TURNOVER = 20e6    # 20 günlük ortalama işlem hacmi alt sınırı (TL)
 RISK_MIN, RISK_MAX = 0.015, 0.12   # stop mesafesi fiyatın %1,5–%12'si arasında olmalı
 MIN_RR, DEFAULT_RR, MAX_RR = 1.5, 2.5, 5.0
-MIN_ROOM = {"destek": 2.0, "kirilim": 2.0}  # bu kurulumlarda en yakın direnç en az bu kadar R uzakta olmalı
+MIN_ROOM = {"destek": 2.5, "kirilim": 2.0}
+RISK_MAX_BY = {"destek": 0.05}  # destekten dönüşte stop desteğe yakın olmalı (fiyat gerçekten destekte)  # bu kurulumlarda en yakın direnç en az bu kadar R uzakta olmalı
 CHASE_R = 0.5          # giriş fiyatı bu kadar R yukarıda açılırsa işlem yapılmaz
 PIVOT = 5              # dönüş noktası: iki yanında 5'er mum (5 gün sonra kesinleşir)
 
@@ -31,13 +32,14 @@ SETUPS = {
     "destek": {
         "name": "Destekten dönüş",
         "summary": "Yükselen trendde desteğe geri çekilen ve tepki veren hisse",
+        "trial": "Deneme aşamasında: ek filtreler seçilirken test dönemine de bakıldı; sonuç diğer kurulumlara göre daha az güvenilir.",
         "rules": [
             "Trend yukarı: fiyat > SMA200, SMA50 > SMA200 ve SMA50 son 10 günde yükselmiş",
             "Geri çekilme: RSI 14 30 ile 50 arasında",
             "Destek: son 120 günün kesinleşmiş en yakın dip noktası ya da SMA50 (hangisi fiyata yakın ve altındaysa); fiyat desteğin en fazla 1 ATR üstünde",
             "Tepki: gün yeşil kapanmış ve önceki kapanışın üstünde",
             "Onay: hacim 20 günlük ortalamanın en az 1,2 katı ya da Supertrend yukarı",
-            "Yer: en yakın direnç en az 2R uzakta (yoksa alınmaz)",
+            "Yer: stop mesafesi en fazla %5 (fiyat desteğe gerçekten yakın) ve en yakın direnç en az 2,5R uzakta",
             "Stop: destek − 0,5 ATR",
         ],
     },
@@ -55,6 +57,7 @@ SETUPS = {
     "dipdonus": {
         "name": "Aşırı satımdan dönüş",
         "summary": "Uzun vadeli trendi yukarı olup kısa vadede aşırı satılan ve dönen hisse",
+        "trial": "Zayıf: test sonucu başa başa yakın ve yıldan yıla dalgalı.",
         "rules": [
             "Uzun vade: fiyat > SMA200",
             "Son 5 günde RSI 14 < 30 olmuş, bugün 30'un üstüne çıkmış",
@@ -163,7 +166,7 @@ def setups_at(F, t) -> list[dict]:
     res = []
     for s in out:
         risk = c - s["stop"]
-        if not (RISK_MIN <= risk / c <= RISK_MAX):
+        if not (RISK_MIN <= risk / c <= RISK_MAX_BY.get(s["k"], RISK_MAX)):
             continue
         tp = _target(F, t, c, risk)
         if (tp - c) / risk < MIN_ROOM.get(s["k"], MIN_RR) - 1e-9:
@@ -183,11 +186,14 @@ def simulate(F, t, sig) -> dict:
     fill = F["o"][t + 1]
     if not np.isfinite(fill) or fill <= stop or fill > entry + CHASE_R * plan_risk:
         return {"status": "skip", "fill": fill}
-    risk = fill - stop
+    # R, PLANLANAN riske göre: pozisyon büyüklüğü sinyal akşamı (giriş − stop) ile belirlenir. Gerçekleşen açılışa göre
+    # hesaplamak, açılış stopa çok yakın geldiğinde riski kâğıt üzerinde sıfıra yaklaştırıp sonucu şişirirdi.
+    risk = plan_risk
     cost_r = COST * fill / risk
 
     def res(status, px, i):
-        return {"status": status, "r": (px - fill) / risk - cost_r, "exit_t": i, "fill": fill, "exit": px}
+        return {"status": status, "r": (px - fill) / risk - cost_r, "pct": (px - fill) / fill - COST,
+                "exit_t": i, "fill": fill, "exit": px}
 
     for i in range(t + 1, min(n, t + 1 + HOLD_MAX)):
         o, h, lo = F["o"][i], F["h"][i], F["l"][i]
@@ -201,8 +207,57 @@ def simulate(F, t, sig) -> dict:
             return res("tp", tp, i)
     last = min(n, t + 1 + HOLD_MAX) - 1
     if last == n - 1 and n - 1 < t + HOLD_MAX:
-        return {"status": "open", "r": (F["c"][-1] - fill) / risk, "fill": fill}
+        return {"status": "open", "r": (F["c"][-1] - fill) / risk, "pct": F["c"][-1] / fill - 1, "fill": fill}
     return res("time", F["c"][last], last)
+
+
+ACCOUNT = {"capital": 100_000, "risk": 0.01, "maxPos": 10}
+
+
+def account(trades: list[dict], capital: float = ACCOUNT["capital"], risk: float = ACCOUNT["risk"],
+            max_pos: int = ACCOUNT["maxPos"]) -> dict | None:
+    """Gerçekçi hesap: sinyaller tarih sırasıyla alınır; her işlemde 1R = özsermayenin `risk` oranı (pozisyon = risk /
+    stop mesafesi), kaldıraç yok (nakit yetmezse pozisyon küçülür), en fazla `max_pos` açık pozisyon; aynı gün daha fazla
+    sinyal varsa listedeki sıraya göre (hisse koduna göre) alınır. Açık pozisyonlar maliyetle değerlenir.
+    Döner: alınan işlem, son değer, yıllık getiri, en büyük düşüş."""
+    if not trades:
+        return None
+    T = sorted(trades, key=lambda x: (x["d0"], x["d1"]))
+    days = sorted({x["d0"] for x in T} | {x["d1"] for x in T})
+    by_day = {}
+    for x in T:
+        by_day.setdefault(x["d0"], []).append(x)
+    cash, open_, taken, peak, mdd = capital, [], 0, capital, 0.0
+    for d in days:
+        for p in [p for p in open_ if p["d1"] <= d]:
+            cash += p["pos"] * (1 + p["pct"])
+            open_.remove(p)
+        equity = cash + sum(p["pos"] for p in open_)
+        peak = max(peak, equity)
+        mdd = max(mdd, 1 - equity / peak)
+        for x in by_day.get(d, []):
+            if len(open_) >= max_pos:
+                break
+            pos = min(equity * risk / max(x["rp"], 1e-6), cash)
+            if pos < equity * 0.02:  # nakit kalmadı
+                continue
+            cash -= pos
+            open_.append({"pos": pos, "pct": x["pct"], "d1": x["d1"]})
+            taken += 1
+    final = cash + sum(p["pos"] * (1 + p["pct"]) for p in open_)
+    yrs = max((days[-1] - days[0]).days / 365.25, 0.1)
+    return {"taken": taken, "final": round(final), "cagr": round((final / capital) ** (1 / yrs) - 1, 4), "mdd": round(mdd, 4),
+            "years": round(yrs, 1)}
+
+
+def bench(idx: pd.DataFrame | None, years: int = 4) -> dict | None:
+    """Aynı dönemde endeksi alıp tutmanın yıllık getirisi ve en büyük düşüşü (karşılaştırma için)."""
+    if idx is None or len(idx) < 300:
+        return None
+    c = idx["Close"].dropna()
+    c = c[c.index >= c.index[-1] - pd.DateOffset(years=years)]
+    yrs = (c.index[-1] - c.index[0]).days / 365.25
+    return {"cagr": round(float((c.iloc[-1] / c.iloc[0]) ** (1 / yrs) - 1), 4), "mdd": round(float((1 - c / c.cummax()).max()), 4)}
 
 
 def run(prices: dict[str, pd.DataFrame], recent_days: int = 60, years: int = 4) -> dict:
@@ -229,7 +284,8 @@ def run(prices: dict[str, pd.DataFrame], recent_days: int = 60, years: int = 4) 
                        "tp": round(sig["tp"], 4), "st": r["status"]}
                 if r["status"] in ("tp", "stop", "time"):
                     busy[k] = r["exit_t"]
-                    trades[k].append({"r": r["r"], "bars": r["exit_t"] - t, "y": F["idx"][t].year, "st": r["status"]})
+                    trades[k].append({"r": r["r"], "pct": r["pct"], "bars": r["exit_t"] - t, "y": F["idx"][t].year, "st": r["status"],
+                                      "d0": F["idx"][t + 1], "d1": F["idx"][r["exit_t"]], "rp": (sig["entry"] - sig["stop"]) / r["fill"]})
                     rec.update(r=round(r["r"], 3), xd=F["idx"][r["exit_t"]].strftime("%Y-%m-%d"), x=round(r["exit"], 4))
                 elif r["status"] == "open":
                     busy[k] = n
@@ -259,11 +315,13 @@ def run(prices: dict[str, pd.DataFrame], recent_days: int = 60, years: int = 4) 
             "stop": round(sum(x["st"] == "stop" for x in lst) / len(lst), 3),
             "time": round(sum(x["st"] == "time" for x in lst) / len(lst), 3),
             "win": round(float((rs > 0).mean()), 3),
+            "avgPct": round(float(np.mean([x["pct"] for x in lst])), 4),
             "avgR": round(float(rs.mean()), 3),
             "medR": round(float(np.median(rs)), 3),
             "pf": round(float(pos / neg), 2) if neg > 0 else None,
             "bars": round(float(np.mean([x["bars"] for x in lst])), 1),
             "byYear": by_year,
+            "account": account(lst),
         }
     active = [a for a in active if a["st"] != "skip"]
     active.sort(key=lambda a: (a["d"], a["t"]), reverse=True)

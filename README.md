@@ -73,7 +73,9 @@ kendi 4 yıllık geçmişindeki yüzdelik dilimi; piyasa genelindeki verim deği
 Sinyaller (`scripts/signals.py`, testleri `tests/test_signals.py`): dört alım kurulumu (destekten dönüş, hacimli kırılım,
 aşırı satımdan dönüş, Supertrend dönüşü), her biri giriş, stop ve hedefle. Kurallar her güncellemede son 4 yılda aynı kodla
 geriye dönük test edilir: giriş ertesi gün açılışta, aynı gün stop ve hedef görülürse stop, en fazla 40 gün, %0,2 komisyon+kayma.
-Ek onay filtreleri 2022–2024 verisinde seçilip 2025–2026 verisinde doğrulandı. Sonuçlar `data/signals.json`.
+Ek onay filtreleri 2022–2024 verisinde seçilip 2025–2026 verisinde doğrulandı. R, sinyal akşamı planlanan riske
+(giriş − stop) göre ölçülür. Her kurulum için 100.000 ₺'lik hesap simülasyonu (işlem başına %1 risk, en fazla 10 pozisyon,
+kaldıraç yok) ve aynı dönemde BIST 100'ü alıp tutma karşılaştırması verilir. Sonuçlar `data/signals.json`.
 
 Temettü: temettuhisseleri.com tutarları **net** ve bedelsizlere göre **düzeltilmemiş**tir; Yahoo'nun bölünme
 çarpanları ve o tarihteki stopajla (2022–2024 arası %10, öncesi ve sonrası %15, GYO/YO %0) brüt, düzeltilmiş

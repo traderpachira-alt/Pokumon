@@ -38,7 +38,17 @@ function ctxChips(a) {
   return out.join(' ');
 }
 
-function statsHtml(st) {
+function accountHtml(st, S) {
+  const a = st.account, A = S.account, b = S.bench;
+  if (!a || !A) return '';
+  return `<div class="sigacct">
+      <b>${fmt.big(A.capital)} ₺ hesapla ne olurdu?</b> İşlem başına sermayenin %${F1.format(A.risk * 100)}'i risk (1R), en fazla ${A.maxPos} pozisyon, kaldıraç yok:
+      ${a.years} yılda ${a.taken} işlem, son değer <b class="${cls(a.final - A.capital)}">${fmt.big(a.final)} ₺</b>
+      (yıllık <b class="${cls(a.cagr)}">${fmt.pct(a.cagr)}</b>), en büyük düşüş <b class="down">−%${Math.round(a.mdd * 100)}</b>.
+      ${b ? `<br><span class="muted">Karşılaştırma: aynı dönemde BIST 100'ü alıp tutmak yıllık ${fmt.pct(b.cagr)}, en büyük düşüş −%${Math.round(b.mdd * 100)}. Hesapta boşta kalan nakit için faiz varsayılmadı.</span>` : ''}
+    </div>`;
+}
+function statsHtml(st, S) {
   if (!st?.n) return '<p class="muted">Test döneminde bu kurulumdan işlem çıkmadı.</p>';
   const years = Object.entries(st.byYear || {});
   return `<div class="sigstats">
@@ -46,6 +56,7 @@ function statsHtml(st) {
       <div><span>Hedefe ulaşan</span><b>%${Math.round(st.tp * 100)}</b></div>
       <div><span>Stop olan</span><b>%${Math.round(st.stop * 100)}</b></div>
       <div title="Komisyon ve kayma düşülmüş ortalama sonuç, risk birimi (R) cinsinden"><span>Ort. sonuç</span><b class="${cls(st.avgR)}">${rFmt(st.avgR)}</b></div>
+      <div title="Gerçekleşen girişe göre ortalama yüzde getiri (komisyon ve kayma düşülmüş)"><span>İşlem başına ort.</span><b class="${cls(st.avgPct)}">${fmt.pct(st.avgPct)}</b></div>
       <div title="Toplam kazanç / toplam kayıp (R). 1'in üstü kârlı"><span>Kâr faktörü</span><b>${ok(st.pf) ? F2.format(st.pf) : '—'}</b></div>
       <div><span>Ort. süre</span><b>${F1.format(st.bars)} gün</b></div>
     </div>
@@ -53,7 +64,8 @@ function statsHtml(st) {
       <tr><td class="tk">İşlem</td>${years.map(([, d]) => `<td>${d.n}</td>`).join('')}</tr>
       <tr><td class="tk">Ort. sonuç</td>${years.map(([, d]) => `<td class="${cls(d.avgR)}">${rFmt(d.avgR)}</td>`).join('')}</tr>
       <tr><td class="tk">Kazanan</td>${years.map(([, d]) => `<td>%${Math.round(d.win * 100)}</td>`).join('')}</tr>
-    </tbody></table></div>` : ''}`;
+    </tbody></table></div>` : ''}
+    ${accountHtml(st, S)}`;
 }
 
 export async function renderSignals() {
@@ -96,16 +108,17 @@ export async function renderSignals() {
           <td class="txt">${ctxChips(a)}</td>
           <td class="${cls(st?.avgR)}">${rFmt(st?.avgR)}</td></tr>`;
       }).join('')}</tbody></table></div>` : '<p class="muted">Şu an bu filtreye uyan aktif sinyal yok.</p>'}
-    <p class="muted" style="font-size:12px;margin:8px 0 0"><b>R</b> = risk birimi (giriş − stop). +2R, riske ettiğinizin iki katı kazanç demektir. ${esc(P.tpRule)}
+    <p class="muted" style="font-size:12px;margin:8px 0 0"><b>R</b> = risk birimi: sinyal akşamı belirlenen giriş − stop farkı; pozisyon büyüklüğü buna göre seçilir (ör. 1R = 1.000 ₺ risk ve stop %5 aşağıdaysa 20.000 ₺'lik pozisyon).
+      +2R, riske ettiğinizin iki katı kazanç demektir. Ortalama R işlem başınadır; sermayenin getirisi değildir (kurulum kartlarındaki hesap simülasyonuna bakın). ${esc(P.tpRule)}
       Pozisyon en fazla ${P.hold} işlem günü tutulur. Testte gidiş-dönüş %${F1.format(P.cost * 100)} komisyon+kayma düşülür; yalnızca 20 günlük ortalama işlem hacmi
       ${fmt.big(P.minTurnover)} ₺ üstündeki hisseler ve stop mesafesi %${F1.format(P.riskMin * 100)}–%${Math.round(P.riskMax * 100)} arasındaki kurulumlar alınır.</p>
   </section>
 
   <div class="sigsetups">
     ${keys.filter(k => sigFilter === 'all' || k === sigFilter).map(k => { const u = S.setups[k]; return `<section class="panel">
-      <h2>${esc(u.name)}</h2><p class="muted" style="margin:0 0 8px">${esc(u.summary)}</p>
+      <h2>${esc(u.name)}</h2><p class="muted" style="margin:0 0 8px">${esc(u.summary)}</p>${u.trial ? `<p class="note-fx" style="margin:0 0 8px;font-size:12px">${esc(u.trial)}</p>` : ''}
       <ul class="sigrules">${u.rules.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
-      <h3>Geriye dönük test (son 4 yıl)</h3>${statsHtml(u.stats)}</section>`; }).join('')}
+      <h3>Geriye dönük test (son 4 yıl)</h3>${statsHtml(u.stats, S)}</section>`; }).join('')}
   </div>
 
   <section class="panel">

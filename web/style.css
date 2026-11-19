@@ -479,3 +479,4 @@ table.sigtable td small { font-size: 11px; margin-left: 2px; }
 @media (max-width: 860px) { .sigsetups { grid-template-columns: 1fr; } }
 .sigyearwrap { overflow-x: auto; }
 .sigsetups > .panel { min-width: 0; }
+.sigacct { margin-top: 10px; font-size: 13px; line-height: 1.5; background: var(--sunk); border-radius: 8px; padding: 8px 10px; }
