@@ -480,3 +480,19 @@ table.sigtable td small { font-size: 11px; margin-left: 2px; }
 .sigyearwrap { overflow-x: auto; }
 .sigsetups > .panel { min-width: 0; }
 .sigacct { margin-top: 10px; font-size: 13px; line-height: 1.5; background: var(--sunk); border-radius: 8px; padding: 8px 10px; }
+
+/* DCF */
+.dcfgrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; margin-bottom: 12px; }
+.dcfbig { display: flex; flex-direction: column; margin-bottom: 10px; }
+.dcfbig > span:first-child { font-size: 12px; color: var(--muted); }
+.dcfbig b { font-size: 24px; font-family: var(--mono); }
+.dcfbig > span:last-child { font-size: 13px; }
+.dcfctl { display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.dcfctl label { display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
+.dcfin { display: flex; align-items: center; gap: 8px; }
+.dcfin input[type=range] { flex: 1; accent-color: var(--accent); }
+.dcfin output { width: 56px; text-align: right; font-family: var(--mono); color: var(--ink); }
+table.dcfsens td.base { outline: 2px solid var(--accent); outline-offset: -2px; font-weight: 600; }
+.dcfmore { margin-top: 10px; }
+.dcfmore summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+@media (max-width: 860px) { .dcfgrid { grid-template-columns: 1fr; } }

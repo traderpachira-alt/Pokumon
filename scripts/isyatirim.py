@@ -26,7 +26,7 @@ UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chr
 # XI_29: sanayi/ticaret/hizmet şirketleri. UFRS: bankalar ve sigorta şirketleri.
 GROUPS = ("XI_29", "UFRS")
 # Saklanan kalemler (diğerleri atılır). Gelir tablosu ve nakit akışı kalemleri dönem başından itibaren kümülatiftir.
-SCHEMA = 2  # kalem listesi değişince artırılır; eski şemadaki önbellek kayıtları öncelikle yenilenir
+SCHEMA = 3  # kalem listesi değişince artırılır; eski şemadaki önbellek kayıtları öncelikle yenilenir
 KEEP = {
     "XI_29": {
         "3C": "rev",        # Satış gelirleri
@@ -47,6 +47,7 @@ KEEP = {
         "2BA": "debtL",     # Uzun vadeli finansal borçlar
         "2O": "eq",         # Ana ortaklığa ait özkaynaklar
         "2OA": "paidCap",   # Ödenmiş sermaye
+        "2ODA": "minority", # Azınlık payları (DCF'de özsermaye değerinden düşülür)
     },
     "UFRS": {  # bankalar
         "3C": "nii",        # Net faiz geliri

@@ -58,6 +58,9 @@ export const FIELDS = {
   yieldPctAbs: { label: 'Mutlak verim dilimi', f: x => !ok(x) ? '—' : `%${Math.round(x * 100)}`, pct: 1, title: 'Son 12 ay veriminin hissenin kendi son 4 yıllık geçmişindeki yüzdelik dilimi (piyasa genelindeki değişim dahil)' },
   yieldRel:  { label: 'Piyasaya göre verim', f: x => !ok(x) ? '—' : F2.format(x) + 'x', title: 'Son 12 ay verimi / piyasa medyan verimi (temettü ödeyen hisseler)' },
   yieldMed:  { label: 'Medyan verim (4Y)', f: fmt.pctPlain, pct: 1, title: 'Son 12 ay veriminin son 4 yıllık medyanı' },
+  dcfImpliedG: { label: 'İma edilen büyüme', f: x => !ok(x) ? '—' : x <= -0.2 + 1e-9 ? '≤ −%20' : x >= 0.6 - 1e-9 ? '≥ %60' : fmt.pct(x), pct: 1, title: 'Ters DCF: bugünkü fiyatın varsaydığı, serbest nakit akışının dolar bazında ilk yıl büyümesi (10. yıla kadar %3\'e iner). Düşükse fiyat mütevazı bir beklenti içeriyor.' },
+  dcfFair:   { label: 'DCF eder ₺', f: x => !ok(x) ? '—' : x <= 0 ? 'negatif' : fmt.price(x), title: 'Varsayılan varsayımlarla dolar bazında DCF eder fiyatı (hisse sayfasından değiştirilebilir)' },
+  dcfUpside: { label: 'DCF farkı', f: fmt.pct, pct: 1, color: 1, title: 'DCF eder fiyat / güncel fiyat − 1 (varsayılan varsayımlarla)' },
   divAvg5:   { label: '5Y ort. verim',    f: fmt.pctPlain, pct: 1, title: 'Son 5 tamamlanmış yılın ortalama yıllık temettüsü / güncel fiyat' },
   nextDivNet:   { label: 'Sıradaki tutar (net) ₺', f: fmt.price, title: 'Açıklanan sıradaki temettünün stopaj sonrası pay başı tutarı (temettuhisseleri.com)' },
   nextDivYield: { label: 'Sıradaki verim (net)',   f: fmt.pctPlain, pct: 1, title: 'Sıradaki net temettü / güncel fiyat' },
@@ -75,7 +78,7 @@ export const VIEWS = {
   trend:    { label: 'Trend',    cols: ['_idx', 'last', 'chg1d', '_trend', '_st', '_ichi', '_cross', 'supDist', '_supStr', 'resDist', '_resStr', 'vsSma50', 'vsSma200', 'vsVwma20', 'stDist', 'distHi52', 'rs3m'] },
   momentum: { label: 'Momentum', cols: ['_idx', 'last', 'chg1d', 'rsi', 'stochK', 'macdPct', 'fisher', '_cross', 'volRatio', 'atrPct', 'volat', 'beta'] },
   temettu:  { label: 'Temettü',  cols: ['_idx', 'last', 'dsScore', 'yieldPct', 'ttmYield', 'divYield', 'divYieldAvg', 'divCur', 'divYieldPrev', 'divYieldAvgPrev', 'divPrev', 'divGrowth', 'divFreq', '_nextDiv', 'nextDivNet', 'lastDivDate', 'lastDivAmt', 'divYears5', 'divStreak', 'divAvg5', 'payout'] },
-  temel:    { label: 'Temel',    cols: ['_idx', 'last', 'fScore', 'mcap', 'pe', 'pb', 'evEbitda', 'netMargin', 'roe', 'de', 'revGrowth', 'epsGrowth', 'divYield', 'freeFloat', '_sector'] },
+  temel:    { label: 'Temel',    cols: ['_idx', 'last', 'fScore', 'dcfImpliedG', 'dcfUpside', 'mcap', 'pe', 'pb', 'evEbitda', 'netMargin', 'roe', 'de', 'revGrowth', 'epsGrowth', 'divYield', 'freeFloat', '_sector'] },
 };
 export const ST = { up: ['Al', 'up'], down: ['Sat', 'down'] };
 export const ICHI = { above: ['Bulut üstü', 'up'], below: ['Bulut altı', 'down'], in: ['Bulut içi', ''] };
@@ -140,7 +143,7 @@ export function signalScore(s) {
 export const PRESETS = [
   { id: 'all',      label: 'Tümü',             test: () => true },
   { id: 'watch',    label: '★ İzleme listem',  test: s => state.watch.includes(s.t) },
-  { id: 'oversold', label: 'Aşırı satım',      test: s => s.rsi < 30,  hint: 'RSI < 30', sort: ['rsi', 1] },
+  { id: 'oversold', label: 'Aşırı satım',      test: s => ok(s.rsi) && s.rsi < 30,  hint: 'RSI < 30', sort: ['rsi', 1] },
   { id: 'overbought', label: 'Aşırı alım',     test: s => s.rsi > 70,  hint: 'RSI > 70', sort: ['rsi', -1] },
   { id: 'uptrend',  label: 'Güçlü trend',      test: s => s.trend === 'up', hint: 'Fiyat > SMA50 > SMA200', sort: ['rs3m', -1] },
   { id: 'golden',   label: 'Golden cross',     test: s => s.cross === 'golden', hint: 'Son 10 günde SMA50, SMA200\'ü yukarı kesti' },
@@ -149,7 +152,7 @@ export const PRESETS = [
   { id: 'fisherUp', label: 'Fisher al',        test: s => s.fisherCross === 'up' && s.fisher < 0, hint: 'Son 2 günde Fisher, tetik çizgisini sıfırın altında yukarı kesti', sort: ['fisher', 1] },
   { id: 'nearSup',  label: 'Güçlü desteğe yakın', test: s => s.supDist <= 0.03 && s.supS >= SR_STRONG, hint: 'En yakın destek bölgesi %3 içinde ve güçlü (skor ≥ 10)', sort: ['supDist', 1] },
   { id: 'nearRes',  label: 'Güçlü dirence yakın', test: s => s.resDist <= 0.02 && s.resS >= SR_STRONG, hint: 'En yakın direnç bölgesi %2 içinde ve güçlü (skor ≥ 10): kırılım takibi', sort: ['resDist', 1] },
-  { id: 'stochLow', label: 'Stoch RSI dipte',  test: s => s.stochK < 20, hint: 'Stokastik RSI %K < 20', sort: ['stochK', 1] },
+  { id: 'stochLow', label: 'Stoch RSI dipte',  test: s => ok(s.stochK) && s.stochK < 20, hint: 'Stokastik RSI %K < 20', sort: ['stochK', 1] },
   { id: 'cloudUp',  label: 'Bulut üstünde',    test: s => s.ichi === 'above' && s.tkCross !== 'down', hint: 'Fiyat Ichimoku bulutunun üstünde', sort: ['rs3m', -1] },
   { id: 'high52',   label: '52H zirvesinde',   test: s => s.distHi52 > -0.03, hint: '52 haftalık zirveye %3\'ten yakın', sort: ['distHi52', -1] },
   { id: 'volspike', label: 'Hacim patlaması',  test: s => s.volRatio >= 2, hint: 'Hacim, 20 günlük ortalamanın 2 katı', sort: ['volRatio', -1] },
@@ -159,6 +162,7 @@ export const PRESETS = [
   { id: 'signal',   label: 'Aktif sinyal',     test: s => !!s.sig?.length, hint: 'Sinyaller sayfasındaki kurulumlardan birinde yeni ya da açık sinyali olanlar' },
   { id: 'divSafe',  label: 'Güvenli temettü',  test: s => s.dsScore >= 70, hint: 'Temettü güvenlik skoru ≥ 70', sort: ['dsScore', -1] },
   { id: 'yieldTop', label: 'Verim bandının tepesi', test: s => s.yieldPct >= 0.8 && s.dsScore >= 50, hint: 'Piyasaya göre verimi kendi 4 yıllık geçmişinin üst %20\'sinde ve güvenlik skoru ≥ 50', sort: ['yieldPct', -1] },
+  { id: 'dcfModest', label: 'Mütevazı fiyatlama', test: s => ok(s.dcfImpliedG) && s.dcfImpliedG <= 0.02, hint: 'Ters DCF: fiyat, serbest nakit akışının dolar bazında en fazla %2 büyümesini varsayıyor', sort: ['dcfImpliedG', 1] },
   { id: 'fStrong',  label: 'Güçlü F-skoru',    test: s => s.fScore >= 7, hint: 'Piotroski F-skoru ≥ 7', sort: ['fScore', -1] },
   { id: 'divReg',   label: 'Düzenli temettü',  test: s => s.divYears5 >= 5, hint: 'Son 5 yılın her birinde temettü ödedi', sort: ['divAvg5', -1] },
   { id: 'value',    label: 'Ucuz',             test: s => s.pe > 0 && s.pe < 8 && s.pb > 0 && s.pb < 1.5, hint: 'F/K < 8 ve PD/DD < 1,5', sort: ['pe', 1] },
@@ -169,7 +173,7 @@ if (!VIEWS[state.view]) state.view = 'trend';
 // Sonradan eklenen varsayılan sütunlar, sütunları elle düzenlenmiş görünümlere de kendi yerlerinde eklenir
 // (kullanıcının kaldırdığı sütunlar geri gelmez: her görünümün daha önce görülen varsayılanları saklanır).
 // colsSeen kaydı olmayan eski kurulumlar için o sürümden sonra eklenen sütunlar:
-const ADDED_LATER = ['divYieldAvg', 'divYieldAvgPrev', 'dsScore', 'yieldPct', 'ttmYield', 'fScore'];
+const ADDED_LATER = ['divYieldAvg', 'divYieldAvgPrev', 'dsScore', 'yieldPct', 'ttmYield', 'fScore', 'dcfImpliedG', 'dcfUpside'];
 state.colsSeen ||= {};
 for (const [v, def] of Object.entries(VIEWS)) {
   const seen = state.colsSeen[v] || def.cols.filter(k => !ADDED_LATER.includes(k));

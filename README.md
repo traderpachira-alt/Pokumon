@@ -70,6 +70,12 @@ net borç/FAVÖK 15, süreklilik 15, kesinti geçmişi 10, özkaynak kârlılı�
 dışarıda bırakılıp 100'e ölçeklenir) ve **verim bandı** (hissenin piyasaya göre veriminin — son 12 ay verimi / temettü ödeyenlerin medyan verimi —
 kendi 4 yıllık geçmişindeki yüzdelik dilimi; piyasa genelindeki verim değişimi ayıklanır, mutlak dilim de verilir). Hisse sayfasındaki mali tablolar (8 çeyrek / 3 yıl) `data/fin/KOD.json` dosyalarından gelir.
 
+DCF (`scripts/dcf.py`, hesaplayıcı `web/js/dcf.js`, testleri `tests/test_dcf.py`, `tests/dcf.test.mjs`): dolar bazında
+indirgenmiş nakit akışı. Nakit akışları dönem sonu kuruyla dolara çevrilir; iskonto oranı ABD 10Y (her güncellemede) + ayarlı
+beta × piyasa risk primi (%4,5) + ülke risk primi (%4). Net borç ve azınlık payları düşülür. Ana gösterge ters DCF
+(fiyatın ima ettiği büyüme); hisse sayfasında varsayımlar değiştirilebilir. Banka, sigorta, finansal kuruluş, GYO, yatırım
+ortaklığı ve holdinglere ve serbest nakit akışı negatif şirketlere uygulanmaz.
+
 Sinyaller (`scripts/signals.py`, testleri `tests/test_signals.py`): dört alım kurulumu (destekten dönüş, hacimli kırılım,
 aşırı satımdan dönüş, Supertrend dönüşü), her biri giriş, stop ve hedefle. Kurallar her güncellemede son 4 yılda aynı kodla
 geriye dönük test edilir: giriş ertesi gün açılışta, aynı gün stop ve hedef görülürse stop, en fazla 40 gün, %0,2 komisyon+kayma.

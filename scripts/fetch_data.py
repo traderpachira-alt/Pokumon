@@ -27,6 +27,7 @@ import pandas as pd
 
 from indicators import ema, sma, wilder_rsi, rma, true_range, rolling_mid, stoch_rsi, fisher, supertrend, ichimoku, vwma  # noqa: F401
 import isyatirim
+import dcf
 import scores
 import signals
 import temettu
@@ -698,7 +699,7 @@ def write_stable_history(out_dir: Path):
         print(f"  Stablecoin kur geçmişi alınamadı ({e}).", flush=True)
 
 
-def quality_scores(t: str, df: pd.DataFrame, m: dict, f: dict, fin: dict | None, fin_dir: Path, mkt_yield=None) -> dict:
+def quality_scores(t: str, df: pd.DataFrame, m: dict, f: dict, fin: dict | None, fin_dir: Path, mkt_yield=None, mk=None) -> dict:
     """F-skoru, temettü güvenlik skoru ve verim bandı; mali tablo özeti ve skor dökümü data/fin/KOD.json'a yazılır."""
     out = {"fScore": None, "dsScore": None}
     fq = scores.piotroski(fin)
@@ -728,8 +729,11 @@ def quality_scores(t: str, df: pd.DataFrame, m: dict, f: dict, fin: dict | None,
     out["dsScore"] = ds["dsScore"]
     out.update(scores.yield_band(df, mkt_yield))
     st = scores.statements(fin)
+    # DCF (dolar bazında) ve ters DCF; hisse sayfasındaki hesaplayıcı girdileri kullanır
+    dc = dcf.inputs(t, {**f, **m}, fin, mk) if fin else {"ok": False, "why": "Mali tablo verisi yok."}
+    out.update(dcf.summary_fields(dc))
     if st or ds["dsParts"] or fq["fItems"]:
-        payload = {"st": st, "f": fq, "ds": ds["dsParts"], "payout": payout}
+        payload = {"st": st, "f": fq, "ds": ds["dsParts"], "payout": payout, "dcf": dc}
         (fin_dir / f"{t}.json").write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     return out
 
@@ -926,6 +930,13 @@ def main():
     idx = prices.get(INDEX)
     # Piyasa temettü verimi (günlük, ödeyenlerin medyanı): verim bandını piyasa genelindeki seviye değişiminden arındırmak için
     mkt_yield = scores.market_yield({t: prices[t] for t in ok})
+    mk = None
+    if not args.sample:
+        try:
+            mk = dcf.market_inputs()
+            print(f"DCF: ABD 10Y %{mk['rf'] * 100:.2f}, USD/TRY {float(mk['fx'].iloc[-1]):.2f}." if mk else "DCF: piyasa verisi alınamadı.", flush=True)
+        except Exception as e:  # noqa: BLE001
+            print(f"  DCF piyasa verisi alınamadı ({e}).", flush=True)
     stocks = []
     for t in ok:
         df = prices[t]
@@ -954,7 +965,7 @@ def main():
             s = is_summ.get(t) or {}
             f = {"name": s.get("name") or bist_names.get(t), "sector": s.get("sector"),
                  "freeFloat": s.get("freeFloat"), **isyatirim.ratios(m["last"], s, is_fin.get(t))}
-        m.update(quality_scores(t, df, m, f, None if args.sample else is_fin.get(t), fin_dir, mkt_yield))
+        m.update(quality_scores(t, df, m, f, None if args.sample else is_fin.get(t), fin_dir, mkt_yield, mk))
         stocks.append({"t": t, "idx": tier.get(t), "mkt": markets.get(t), "tedbir": measures.get(t), **f, **m})
     print(f"Temettü: {div_fix['site']} hissede temettuhisseleri ile karşılaştırıldı; {div_fix['fixed']} kayıt düzeltildi, "
           f"{div_fix['added']} eksik kayıt eklendi.", flush=True)
