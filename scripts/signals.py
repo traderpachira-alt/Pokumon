@@ -222,7 +222,9 @@ def account(trades: list[dict], capital: float = ACCOUNT["capital"], risk: float
     Döner: alınan işlem, son değer, yıllık getiri, en büyük düşüş."""
     if not trades:
         return None
-    T = sorted(trades, key=lambda x: (x["d0"], x["d1"]))
+    # Aynı gün birden fazla sinyal: yalnızca o gün bilinen bilgiyle (hisse koduna göre) sırala. Çıkış tarihine göre
+    # sıralamak geleceğe bakmak olurdu (kısa süren işlemler, genelde kaybedenler, öne geçerdi).
+    T = sorted(trades, key=lambda x: (x["d0"], x.get("sym", "")))
     days = sorted({x["d0"] for x in T} | {x["d1"] for x in T})
     by_day = {}
     for x in T:
@@ -285,7 +287,8 @@ def run(prices: dict[str, pd.DataFrame], recent_days: int = 60, years: int = 4) 
                 if r["status"] in ("tp", "stop", "time"):
                     busy[k] = r["exit_t"]
                     trades[k].append({"r": r["r"], "pct": r["pct"], "bars": r["exit_t"] - t, "y": F["idx"][t].year, "st": r["status"],
-                                      "d0": F["idx"][t + 1], "d1": F["idx"][r["exit_t"]], "rp": (sig["entry"] - sig["stop"]) / r["fill"]})
+                                      "d0": F["idx"][t + 1], "d1": F["idx"][r["exit_t"]], "rp": (sig["entry"] - sig["stop"]) / r["fill"],
+                                      "sym": sym})
                     rec.update(r=round(r["r"], 3), xd=F["idx"][r["exit_t"]].strftime("%Y-%m-%d"), x=round(r["exit"], 4))
                 elif r["status"] == "open":
                     busy[k] = n

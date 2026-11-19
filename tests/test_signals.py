@@ -85,6 +85,15 @@ class AccountTest(unittest.TestCase):
         self.assertEqual(S.account(many, max_pos=3)["taken"], 1)
         self.assertIsNone(S.account([]))
 
+    def test_no_lookahead_in_selection(self):
+        # Aynı gün iki sinyal, tek pozisyon hakkı: seçim çıkış tarihine (geleceğe) göre değil, hisse koduna göre yapılır
+        d = pd.bdate_range("2024-01-01", periods=30)
+        long_win = {"d0": d[0], "d1": d[20], "pct": 0.20, "rp": 1.0, "sym": "AAA"}
+        quick_loss = {"d0": d[0], "d1": d[1], "pct": -0.05, "rp": 1.0, "sym": "ZZZ"}
+        a = S.account([quick_loss, long_win], capital=100_000, risk=0.5, max_pos=1)
+        self.assertEqual(a["taken"], 1)
+        self.assertAlmostEqual(a["final"], 100_000 + 50_000 * 0.20, delta=2)
+
 
 class SetupTest(unittest.TestCase):
     def test_no_lookahead(self):
